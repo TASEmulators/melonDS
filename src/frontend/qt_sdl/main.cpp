@@ -60,7 +60,9 @@
 #include "WifiSettingsDialog.h"
 #include "InterfaceSettingsDialog.h"
 #include "ROMInfoDialog.h"
+#include "RAMInfoDialog.h"
 #include "TitleManagerDialog.h"
+#include "PowerManagement/PowerManagementDialog.h"
 
 #include "types.h"
 #include "version.h"
@@ -108,6 +110,15 @@ u32 micExtBufferWritePos;
 
 u32 micWavLength;
 s16* micWavBuffer;
+
+const struct { int id; float ratio; const char* label; } aspectRatios[] =
+{
+    { 0, 1,                       "4:3 (native)" },
+    { 4, (16.f / 10) / (4.f / 3), "16:10 (3DS)"},
+    { 1, (16.f / 9) / (4.f / 3),  "16:9" },
+    { 2, (21.f / 9) / (4.f / 3),  "21:9" },
+    { 3, 0,                       "window" }
+};
 
 void micCallback(void* data, Uint8* stream, int len);
 
@@ -744,13 +755,21 @@ void ScreenHandler::screenSetupLayout(int w, int h)
     int sizing = Config::ScreenSizing;
     if (sizing == 3) sizing = autoScreenSizing;
 
-    float aspectRatios[] =
+    float aspectTop, aspectBot;
+
+    for (auto ratio : aspectRatios)
     {
-        1.f,
-        (16.f/9)/(4.f/3),
-        (21.f/9)/(4.f/3),
-        ((float)w/h)/(4.f/3)
-    };
+        if (ratio.id == Config::ScreenAspectTop)
+            aspectTop = ratio.ratio;
+        if (ratio.id == Config::ScreenAspectBot)
+            aspectBot = ratio.ratio;
+    }
+
+    if (aspectTop == 0)
+        aspectTop = (float) w / h;
+
+    if (aspectBot == 0)
+        aspectBot = (float) w / h;
 
     Frontend::SetupScreenLayout(w, h,
                                 Config::ScreenLayout,
@@ -759,8 +778,8 @@ void ScreenHandler::screenSetupLayout(int w, int h)
                                 Config::ScreenGap,
                                 Config::IntegerScaling != 0,
                                 Config::ScreenSwap != 0,
-                                aspectRatios[Config::ScreenAspectTop],
-                                aspectRatios[Config::ScreenAspectBot]);
+                                aspectTop,
+                                aspectBot);
 
     numScreens = Frontend::GetScreenTransforms(screenMatrix[0], screenKind);
 }
@@ -772,6 +791,11 @@ QSize ScreenHandler::screenGetMinSize(int factor = 1)
 
     int w = 256 * factor;
     int h = 192 * factor;
+
+    if (Config::ScreenSizing == 4 || Config::ScreenSizing == 5)
+    {
+        return QSize(w, h);
+    }
 
     if (Config::ScreenLayout == 0) // natural
     {
@@ -1428,6 +1452,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
         menu->addSeparator();
 
+        actPowerManagement = menu->addAction("Power management");
+        connect(actPowerManagement, &QAction::triggered, this, &MainWindow::onOpenPowerManagement);
+
+        menu->addSeparator();
+
         actEnableCheats = menu->addAction("Enable cheats");
         actEnableCheats->setCheckable(true);
         connect(actEnableCheats, &QAction::triggered, this, &MainWindow::onEnableCheats);
@@ -1439,6 +1468,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         menu->addSeparator();
         actROMInfo = menu->addAction("ROM info");
         connect(actROMInfo, &QAction::triggered, this, &MainWindow::onROMInfo);
+
+        actRAMInfo = menu->addAction("RAM search");
+        connect(actRAMInfo, &QAction::triggered, this, &MainWindow::onRAMInfo);
 
         actTitleManager = menu->addAction("Manage DSi titles");
         connect(actTitleManager, &QAction::triggered, this, &MainWindow::onOpenTitleManager);
@@ -1576,34 +1608,34 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         {
             QMenu* submenu = menu->addMenu("Aspect ratio");
             grpScreenAspectTop = new QActionGroup(submenu);
-
-            const char* aspectRatiosTop[] = {"Top 4:3 (native)", "Top 16:9", "Top 21:9", "Top window"};
-
-            for (int i = 0; i < 4; i++)
-            {
-                actScreenAspectTop[i] = submenu->addAction(QString(aspectRatiosTop[i]));
-                actScreenAspectTop[i]->setActionGroup(grpScreenAspectTop);
-                actScreenAspectTop[i]->setData(QVariant(i));
-                actScreenAspectTop[i]->setCheckable(true);
-            }
-
-            connect(grpScreenAspectTop, &QActionGroup::triggered, this, &MainWindow::onChangeScreenAspectTop);
-
-            submenu->addSeparator();
-
             grpScreenAspectBot = new QActionGroup(submenu);
+            actScreenAspectTop = new QAction*[sizeof(aspectRatios) / sizeof(aspectRatios[0])];
+            actScreenAspectBot = new QAction*[sizeof(aspectRatios) / sizeof(aspectRatios[0])];
 
-            const char* aspectRatiosBot[] = {"Bottom 4:3 (native)", "Bottom 16:9", "Bottom 21:9", "Bottom window"};
-
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 2; i++)
             {
-                actScreenAspectBot[i] = submenu->addAction(QString(aspectRatiosBot[i]));
-                actScreenAspectBot[i]->setActionGroup(grpScreenAspectBot);
-                actScreenAspectBot[i]->setData(QVariant(i));
-                actScreenAspectBot[i]->setCheckable(true);
-            }
+                QActionGroup* group = grpScreenAspectTop;
+                QAction** actions = actScreenAspectTop;
 
-            connect(grpScreenAspectBot, &QActionGroup::triggered, this, &MainWindow::onChangeScreenAspectBot);
+                if (i == 1)
+                {
+                    group = grpScreenAspectBot;
+                    submenu->addSeparator();
+                    actions = actScreenAspectBot;
+                }
+
+                for (int j = 0; j < sizeof(aspectRatios) / sizeof(aspectRatios[0]); j++)
+                {
+                    auto ratio = aspectRatios[j];
+                    QString label = QString("%1 %2").arg(i ? "Bottom" : "Top", ratio.label);
+                    actions[j] = submenu->addAction(label);
+                    actions[j]->setActionGroup(group);
+                    actions[j]->setData(QVariant(ratio.id));
+                    actions[j]->setCheckable(true);
+                }
+
+                connect(group, &QActionGroup::triggered, this, &MainWindow::onChangeScreenAspect);
+            }
         }
 
         actScreenFiltering = menu->addAction("Screen filtering");
@@ -1665,12 +1697,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     actStop->setEnabled(false);
     actFrameStep->setEnabled(false);
 
+    actPowerManagement->setEnabled(false);
+
     actSetupCheats->setEnabled(false);
     actTitleManager->setEnabled(!Config::DSiNANDPath.empty());
 
     actEnableCheats->setChecked(Config::EnableCheats);
 
     actROMInfo->setEnabled(false);
+    actRAMInfo->setEnabled(false);
 
     actSavestateSRAMReloc->setChecked(Config::SavestateRelocSRAM);
 
@@ -1691,8 +1726,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
     actScreenSwap->setChecked(Config::ScreenSwap);
 
-    actScreenAspectTop[Config::ScreenAspectTop]->setChecked(true);
-    actScreenAspectBot[Config::ScreenAspectBot]->setChecked(true);
+    for (int i = 0; i < sizeof(aspectRatios) / sizeof(aspectRatios[0]); i++)
+    {
+        if (Config::ScreenAspectTop == aspectRatios[i].id)
+            actScreenAspectTop[i]->setChecked(true);
+        if (Config::ScreenAspectBot == aspectRatios[i].id)
+            actScreenAspectBot[i]->setChecked(true);
+    }
 
     actScreenFiltering->setChecked(Config::ScreenFilter);
     actShowOSD->setChecked(Config::ShowOSD);
@@ -2082,6 +2122,7 @@ void MainWindow::updateCartInserted(bool gba)
         actImportSavefile->setEnabled(inserted);
         actSetupCheats->setEnabled(inserted);
         actROMInfo->setEnabled(inserted);
+        actRAMInfo->setEnabled(inserted);
     }
 }
 
@@ -2557,6 +2598,11 @@ void MainWindow::onROMInfo()
     ROMInfoDialog* dlg = ROMInfoDialog::openDlg(this);
 }
 
+void MainWindow::onRAMInfo()
+{
+    RAMInfoDialog* dlg = RAMInfoDialog::openDlg(this);
+}
+
 void MainWindow::onOpenTitleManager()
 {
     TitleManagerDialog* dlg = TitleManagerDialog::openDlg(this);
@@ -2596,6 +2642,11 @@ void MainWindow::onEmuSettingsDialogFinished(int res)
 
     if (!RunningSomething)
         actTitleManager->setEnabled(!Config::DSiNANDPath.empty());
+}
+
+void MainWindow::onOpenPowerManagement()
+{
+    PowerManagementDialog* dlg = PowerManagementDialog::openDlg(this);
 }
 
 void MainWindow::onOpenInputConfig()
@@ -2777,7 +2828,7 @@ void MainWindow::onChangeScreenSwap(bool checked)
 {
     Config::ScreenSwap = checked?1:0;
 
-    // Swap between top and bottom screen when displaying one screen. 
+    // Swap between top and bottom screen when displaying one screen.
     if (Config::ScreenSizing == screenSizing_TopOnly)
     {
         // Bottom Screen.
@@ -2792,7 +2843,7 @@ void MainWindow::onChangeScreenSwap(bool checked)
         actScreenSizing[screenSizing_BotOnly]->setChecked(false);
         actScreenSizing[Config::ScreenSizing]->setChecked(true);
     }
-    
+
     emit screenLayoutChange();
 }
 
@@ -2804,18 +2855,19 @@ void MainWindow::onChangeScreenSizing(QAction* act)
     emit screenLayoutChange();
 }
 
-void MainWindow::onChangeScreenAspectTop(QAction* act)
+void MainWindow::onChangeScreenAspect(QAction* act)
 {
     int aspect = act->data().toInt();
-    Config::ScreenAspectTop = aspect;
+    QActionGroup* group = act->actionGroup();
 
-    emit screenLayoutChange();
-}
-
-void MainWindow::onChangeScreenAspectBot(QAction* act)
-{
-    int aspect = act->data().toInt();
-    Config::ScreenAspectBot = aspect;
+    if (group == grpScreenAspectTop)
+    {
+        Config::ScreenAspectTop = aspect;
+    }
+    else
+    {
+        Config::ScreenAspectBot = aspect;
+    }
 
     emit screenLayoutChange();
 }
@@ -2885,6 +2937,8 @@ void MainWindow::onEmuStart()
     actStop->setEnabled(true);
     actFrameStep->setEnabled(true);
 
+    actPowerManagement->setEnabled(true);
+
     actTitleManager->setEnabled(false);
 }
 
@@ -2903,6 +2957,8 @@ void MainWindow::onEmuStop()
     actReset->setEnabled(false);
     actStop->setEnabled(false);
     actFrameStep->setEnabled(false);
+
+    actPowerManagement->setEnabled(false);
 
     actTitleManager->setEnabled(!Config::DSiNANDPath.empty());
 }
@@ -2985,10 +3041,10 @@ int main(int argc, char** argv)
     {
         printf("SDL couldn't init joystick\n");
     }
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
+    if (SDL_Init(SDL_INIT_AUDIO) < 0)
     {
         const char* err = SDL_GetError();
-        QString errorStr = "Failed to initialize SDL. This could indicate an issue with your graphics or audio driver.\n\nThe error was: ";
+        QString errorStr = "Failed to initialize SDL. This could indicate an issue with your audio driver.\n\nThe error was: ";
         errorStr += err;
 
         QMessageBox::critical(NULL, "melonDS", errorStr);

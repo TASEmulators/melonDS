@@ -1262,7 +1262,6 @@ u8 ARM9Read8(u32 addr)
     switch (addr & 0xFF000000)
     {
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1290,6 +1289,9 @@ u8 ARM9Read8(u32 addr)
     case 0x09000000:
     case 0x0A000000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0 : 0xFF;
+
+    case 0x0C000000:
+        return *(u8*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM9Read8(addr);
@@ -1308,7 +1310,6 @@ u16 ARM9Read16(u32 addr)
     switch (addr & 0xFF000000)
     {
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1336,6 +1337,9 @@ u16 ARM9Read16(u32 addr)
     case 0x09000000:
     case 0x0A000000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0 : 0xFFFF;
+
+    case 0x0C000000:
+        return *(u16*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM9Read16(addr);
@@ -1359,7 +1363,6 @@ u32 ARM9Read32(u32 addr)
         break;
 
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1387,6 +1390,9 @@ u32 ARM9Read32(u32 addr)
     case 0x09000000:
     case 0x0A000000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0 : 0xFFFFFFFF;
+
+    case 0x0C000000:
+        return *(u32*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM9Read32(addr);
@@ -1397,7 +1403,6 @@ void ARM9Write8(u32 addr, u8 val)
     switch (addr & 0xFF000000)
     {
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1485,6 +1490,13 @@ void ARM9Write8(u32 addr, u8 val)
     case 0x09000000:
     case 0x0A000000:
         return;
+
+    case 0x0C000000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u8*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
+        return;
     }
 
     return NDS::ARM9Write8(addr, val);
@@ -1495,7 +1507,6 @@ void ARM9Write16(u32 addr, u16 val)
     switch (addr & 0xFF000000)
     {
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1569,6 +1580,13 @@ void ARM9Write16(u32 addr, u16 val)
     case 0x09000000:
     case 0x0A000000:
         return;
+
+    case 0x0C000000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u16*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
+        return;
     }
 
     return NDS::ARM9Write16(addr, val);
@@ -1579,7 +1597,6 @@ void ARM9Write32(u32 addr, u32 val)
     switch (addr & 0xFF000000)
     {
     case 0x03000000:
-    case 0x03800000:
         if (SCFG_EXT[0] & (1 << 25))
         {
             if (addr >= NWRAMStart[0][0] && addr < NWRAMEnd[0][0])
@@ -1653,6 +1670,13 @@ void ARM9Write32(u32 addr, u32 val)
     case 0x09000000:
     case 0x0A000000:
         return;
+
+    case 0x0C000000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<0, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u32*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
+        return;
     }
 
     return NDS::ARM9Write32(addr, val);
@@ -1663,6 +1687,7 @@ bool ARM9GetMemRegion(u32 addr, bool write, NDS::MemRegion* region)
     switch (addr & 0xFF000000)
     {
     case 0x02000000:
+    case 0x0C000000:
         region->Mem = NDS::MainRAM;
         region->Mask = NDS::MainRAMMask;
         return true;
@@ -1743,6 +1768,10 @@ u8 ARM7Read8(u32 addr)
     case 0x0A000000:
     case 0x0A800000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0xFF : 0;
+
+    case 0x0C000000:
+    case 0x0C800000:
+        return *(u8*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM7Read8(addr);
@@ -1796,6 +1825,10 @@ u16 ARM7Read16(u32 addr)
     case 0x0A000000:
     case 0x0A800000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0xFFFF : 0;
+
+    case 0x0C000000:
+    case 0x0C800000:
+        return *(u16*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM7Read16(addr);
@@ -1849,6 +1882,10 @@ u32 ARM7Read32(u32 addr)
     case 0x0A000000:
     case 0x0A800000:
         return (NDS::ExMemCnt[0] & (1<<7)) ? 0xFFFFFFFF : 0;
+
+    case 0x0C000000:
+    case 0x0C800000:
+        return *(u32*)&NDS::MainRAM[addr & NDS::MainRAMMask];
     }
 
     return NDS::ARM7Read32(addr);
@@ -1935,6 +1972,14 @@ void ARM7Write8(u32 addr, u8 val)
     case 0x09800000:
     case 0x0A000000:
     case 0x0A800000:
+        return;
+
+    case 0x0C000000:
+    case 0x0C800000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u8*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
         return;
     }
 
@@ -2023,6 +2068,14 @@ void ARM7Write16(u32 addr, u16 val)
     case 0x0A000000:
     case 0x0A800000:
         return;
+
+    case 0x0C000000:
+    case 0x0C800000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u16*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
+        return;
     }
 
     return NDS::ARM7Write16(addr, val);
@@ -2110,6 +2163,14 @@ void ARM7Write32(u32 addr, u32 val)
     case 0x0A000000:
     case 0x0A800000:
         return;
+
+    case 0x0C000000:
+    case 0x0C800000:
+#ifdef JIT_ENABLED
+        ARMJIT::CheckAndInvalidate<1, ARMJIT_Memory::memregion_MainRAM>(addr);
+#endif
+        *(u32*)&NDS::MainRAM[addr & NDS::MainRAMMask] = val;
+        return;
     }
 
     return NDS::ARM7Write32(addr, val);
@@ -2121,6 +2182,8 @@ bool ARM7GetMemRegion(u32 addr, bool write, NDS::MemRegion* region)
     {
     case 0x02000000:
     case 0x02800000:
+    case 0x0C000000:
+    case 0x0C800000:
         region->Mem = NDS::MainRAM;
         region->Mask = NDS::MainRAMMask;
         return true;

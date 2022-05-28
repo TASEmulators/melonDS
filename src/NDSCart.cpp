@@ -548,17 +548,17 @@ u8 CartRetail::SPIWrite(u8 val, u32 pos, bool last)
         {
         case 0x04: // write disable
             SRAMStatus &= ~(1<<1);
-            break;
+            return 0;
         case 0x06: // write enable
             SRAMStatus |= (1<<1);
-            break;
+            return 0;
 
         default:
             SRAMCmd = val;
             SRAMAddr = 0;
         }
 
-        return 0;
+        return 0xFF;
     }
 
     switch (SRAMType)
@@ -566,7 +566,7 @@ u8 CartRetail::SPIWrite(u8 val, u32 pos, bool last)
     case 1: return SRAMWrite_EEPROMTiny(val, pos, last);
     case 2: return SRAMWrite_EEPROM(val, pos, last);
     case 3: return SRAMWrite_FLASH(val, pos, last);
-    default: return 0;
+    default: return 0xFF;
     }
 }
 
@@ -647,7 +647,7 @@ u8 CartRetail::SRAMWrite_EEPROMTiny(u8 val, u32 pos, bool last)
     default:
         if (pos == 1)
             printf("unknown tiny EEPROM save command %02X\n", SRAMCmd);
-        return 0;
+        return 0xFF;
     }
 }
 
@@ -713,7 +713,7 @@ u8 CartRetail::SRAMWrite_EEPROM(u8 val, u32 pos, bool last)
     default:
         if (pos == 1)
             printf("unknown EEPROM save command %02X\n", SRAMCmd);
-        return 0;
+        return 0xFF;
     }
 }
 
@@ -857,7 +857,7 @@ u8 CartRetail::SRAMWrite_FLASH(u8 val, u32 pos, bool last)
     default:
         if (pos == 1)
             printf("unknown FLASH save command %02X\n", SRAMCmd);
-        return 0;
+        return 0xFF;
     }
 }
 
@@ -1310,40 +1310,8 @@ void CartHomebrew::ROMCommandFinish(u8* cmd, u8* data, u32 len)
     }
 }
 
-void CartHomebrew::ApplyDLDIPatch(const u8* patch, u32 patchlen, bool readonly)
+void CartHomebrew::ApplyDLDIPatchAt(u8* binary, u32 dldioffset, const u8* patch, u32 patchlen, bool readonly)
 {
-    u32 offset = *(u32*)&ROM[0x20];
-    u32 size = *(u32*)&ROM[0x2C];
-
-    u8* binary = &ROM[offset];
-    u32 dldioffset = 0;
-
-    for (u32 i = 0; i < size; i++)
-    {
-        if (*(u32*)&binary[i  ] == 0xBF8DA5ED &&
-            *(u32*)&binary[i+4] == 0x69684320 &&
-            *(u32*)&binary[i+8] == 0x006D6873)
-        {
-            dldioffset = i;
-            break;
-        }
-    }
-
-    if (!dldioffset)
-    {
-        return;
-    }
-
-    printf("DLDI structure found at %08X (%08X)\n", dldioffset, offset+dldioffset);
-
-    if (*(u32*)&patch[0] != 0xBF8DA5ED ||
-        *(u32*)&patch[4] != 0x69684320 ||
-        *(u32*)&patch[8] != 0x006D6873)
-    {
-        printf("bad DLDI patch\n");
-        return;
-    }
-
     if (patch[0x0D] > binary[dldioffset+0x0F])
     {
         printf("DLDI driver ain't gonna fit, sorry\n");
@@ -1440,7 +1408,37 @@ void CartHomebrew::ApplyDLDIPatch(const u8* patch, u32 patchlen, bool readonly)
         *(u32*)&binary[writesec_addr+0x04] = 0xE12FFF1E; // bx lr
     }
 
-    printf("applied DLDI patch\n");
+    printf("applied DLDI patch at %08X\n", dldioffset);
+}
+
+void CartHomebrew::ApplyDLDIPatch(const u8* patch, u32 patchlen, bool readonly)
+{
+    if (*(u32*)&patch[0] != 0xBF8DA5ED ||
+        *(u32*)&patch[4] != 0x69684320 ||
+        *(u32*)&patch[8] != 0x006D6873)
+    {
+        printf("bad DLDI patch\n");
+        return;
+    }
+
+    u32 offset = *(u32*)&ROM[0x20];
+    u32 size = *(u32*)&ROM[0x2C];
+
+    u8* binary = &ROM[offset];
+
+    for (u32 i = 0; i < size; )
+    {
+        if (*(u32*)&binary[i  ] == 0xBF8DA5ED &&
+            *(u32*)&binary[i+4] == 0x69684320 &&
+            *(u32*)&binary[i+8] == 0x006D6873)
+        {
+            printf("DLDI structure found at %08X (%08X)\n", i, offset+i);
+            ApplyDLDIPatchAt(binary, i, patch, patchlen, readonly);
+            i += patchlen;
+        }
+        else
+            i++;
+    }
 }
 
 void CartHomebrew::ReadROM_B7(u32 addr, u32 len, u8* data, u32 offset)
@@ -1823,9 +1821,8 @@ void ROMPrepareData(u32 param)
 
 void WriteROMCnt(u32 val)
 {
-    ROMCnt = (val & 0xFF7F7FFF) | (ROMCnt & 0x00800000);
-
-    if (!(SPICnt & (1<<15))) return;
+    u32 xferstart = (val & ~ROMCnt) & (1<<31);
+    ROMCnt = (val & 0xFF7F7FFF) | (ROMCnt & 0x20800000);
 
     // all this junk would only really be useful if melonDS was interfaced to
     // a DS cart reader
@@ -1849,7 +1846,11 @@ void WriteROMCnt(u32 val)
         printf("key2 Y: %02X%08X\n", (u32)(Key2_Y>>32), (u32)Key2_Y);
     }
 
-    if (!(ROMCnt & (1<<31))) return;
+    // transfers will only start when bit31 changes from 0 to 1
+    // and if AUXSPICNT is configured correctly
+    if (!(SPICnt & (1<<15))) return;
+    if (SPICnt & (1<<13)) return;
+    if (!xferstart) return;
 
     u32 datasize = (ROMCnt >> 24) & 0x7;
     if (datasize == 7)
@@ -1888,6 +1889,7 @@ void WriteROMCnt(u32 val)
     // thus a command would take 8 cycles to be transferred
     // and it would take 4 cycles to receive a word of data
     // TODO: advance read position if bit28 is set
+    // TODO: during a write transfer, bit23 is set immediately when beginning the transfer(?)
 
     u32 xfercycle = (ROMCnt & (1<<27)) ? 8 : 5;
     u32 cmddelay = 8;
@@ -1968,6 +1970,10 @@ void WriteSPICnt(u16 val)
     }
 
     SPICnt = (SPICnt & 0x0080) | (val & 0xE043);
+
+    // AUXSPICNT can be changed during a transfer
+    // in this case, the transfer continues until the end, even if bit13 or bit15 are cleared
+    // if the transfer speed is changed, the transfer continues at the new speed (TODO)
     if (SPICnt & (1<<7))
         printf("!! CHANGING AUXSPICNT DURING TRANSFER: %04X\n", val);
 }
@@ -1990,8 +1996,7 @@ void WriteSPIData(u8 val)
 {
     if (!(SPICnt & (1<<15))) return;
     if (!(SPICnt & (1<<13))) return;
-
-    if (SPICnt & (1<<7)) printf("!! WRITING AUXSPIDATA DURING PENDING TRANSFER\n");
+    if (SPICnt & (1<<7)) return;
 
     SPICnt |= (1<<7);
 

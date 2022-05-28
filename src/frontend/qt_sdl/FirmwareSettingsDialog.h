@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2020 Arisotura
+    Copyright 2016-2022 melonDS team
 
     This file is part of melonDS.
 
@@ -123,6 +123,7 @@ private slots:
     void done(int r);
 
     void on_cbxBirthdayMonth_currentIndexChanged(int idx);
+    void on_overrideFirmwareBox_toggled();
     void on_cbRandomizeMAC_toggled();
 
 private:

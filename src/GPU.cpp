@@ -534,6 +534,8 @@ u8* GetUniqueBankPtr(u32 mask, u32 offset)
 
 void MapVRAM_AB(u32 bank, u8 cnt)
 {
+    cnt &= 0x9B;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
@@ -592,6 +594,8 @@ void MapVRAM_AB(u32 bank, u8 cnt)
 
 void MapVRAM_CD(u32 bank, u8 cnt)
 {
+    cnt &= 0x9F;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
@@ -676,6 +680,8 @@ void MapVRAM_CD(u32 bank, u8 cnt)
 
 void MapVRAM_E(u32 bank, u8 cnt)
 {
+    cnt &= 0x87;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
@@ -738,6 +744,8 @@ void MapVRAM_E(u32 bank, u8 cnt)
 
 void MapVRAM_FG(u32 bank, u8 cnt)
 {
+    cnt &= 0x9F;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
@@ -836,6 +844,8 @@ void MapVRAM_FG(u32 bank, u8 cnt)
 
 void MapVRAM_H(u32 bank, u8 cnt)
 {
+    cnt &= 0x83;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
@@ -896,6 +906,8 @@ void MapVRAM_H(u32 bank, u8 cnt)
 
 void MapVRAM_I(u32 bank, u8 cnt)
 {
+    cnt &= 0x83;
+
     u8 oldcnt = VRAMCNT[bank];
     VRAMCNT[bank] = cnt;
 
