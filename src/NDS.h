@@ -32,9 +32,19 @@ extern void (*ReadCallback)(u32);
 extern void (*WriteCallback)(u32);
 extern void (*ExecuteCallback)(u32);
 
-extern void (*TraceCallback)(u32, u32*, u32);
+typedef enum {
+    TRACE_NONE = 0,
+    TRACE_ARM7_THUMB = 1,
+    TRACE_ARM7_ARM = 2,
+    TRACE_ARM9_THUMB = 4,
+    TRACE_ARM9_ARM = 8,
+} TraceMask_t;
 
-#define MAYBE_CALLBACK(callback, ...) do { if (callback) callback(__VA_ARGS__); } while (0)
+extern TraceMask_t TraceMask;
+
+void TraceTrampoline(TraceMask_t, u32*, u32);
+
+#define MAYBE_CALLBACK(callback, ...) do { if (__builtin_expect(!!callback, false)) callback(__VA_ARGS__); } while (0)
 
 // when touching the main loop/timing code, pls test a lot of shit
 // with this enabled, to make sure it doesn't desync
@@ -194,6 +204,7 @@ extern u32 ARM7Regions[0x20000];
 extern u32 NumFrames;
 extern u32 NumLagFrames;
 extern bool LagFrameFlag;
+extern bool AltLagFrameFlag;
 
 extern u64 ARM9Timestamp, ARM9Target;
 extern u64 ARM7Timestamp, ARM7Target;

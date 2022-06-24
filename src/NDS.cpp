@@ -88,6 +88,7 @@ bool EnableJIT;
 u32 NumFrames;
 u32 NumLagFrames;
 bool LagFrameFlag;
+bool AltLagFrameFlag;
 u64 LastSysClockCycles;
 u64 FrameStartTimestamp;
 
@@ -1045,6 +1046,7 @@ u32 RunFrame()
     FrameStartTimestamp = SysTimestamp;
 
     LagFrameFlag = true;
+    AltLagFrameFlag = true;
     bool runFrame = Running && !(CPUStop & 0x40000000);
     if (runFrame)
     {
@@ -3718,14 +3720,14 @@ u8 ARM7IORead8(u32 addr)
 {
     switch (addr)
     {
-    case 0x04000130: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput & 0xFF;
-    case 0x04000131: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput >> 8) & 0xFF;
+    case 0x04000130: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput & 0xFF;
+    case 0x04000131: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput >> 8) & 0xFF;
     case 0x04000132: return KeyCnt & 0xFF;
     case 0x04000133: return KeyCnt >> 8;
     case 0x04000134: return RCnt & 0xFF;
     case 0x04000135: return RCnt >> 8;
-    case 0x04000136: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput >> 16) & 0xFF;
-    case 0x04000137: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput >> 24;
+    case 0x04000136: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput >> 16) & 0xFF;
+    case 0x04000137: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput >> 24;
 
     case 0x04000138: return RTC::Read() & 0xFF;
 
@@ -3811,10 +3813,10 @@ u16 ARM7IORead16(u32 addr)
     case 0x0400010C: return TimerGetCounter(7);
     case 0x0400010E: return Timers[7].Cnt;
 
-    case 0x04000130: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput & 0xFFFF;
+    case 0x04000130: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput & 0xFFFF;
     case 0x04000132: return KeyCnt;
     case 0x04000134: return RCnt;
-    case 0x04000136: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput >> 16;
+    case 0x04000136: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return KeyInput >> 16;
 
     case 0x04000138: return RTC::Read();
 
@@ -3901,7 +3903,7 @@ u32 ARM7IORead32(u32 addr)
     case 0x04000108: return TimerGetCounter(6) | (Timers[6].Cnt << 16);
     case 0x0400010C: return TimerGetCounter(7) | (Timers[7].Cnt << 16);
 
-    case 0x04000130: LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput & 0xFFFF) | (KeyCnt << 16);
+    case 0x04000130: AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); return (KeyInput & 0xFFFF) | (KeyCnt << 16);
     case 0x04000134: return RCnt | (KeyCnt & 0xFFFF0000);
     case 0x04000138: return RTC::Read();
 

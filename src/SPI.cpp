@@ -817,8 +817,8 @@ void Write(u8 val, u32 hold)
 
         switch (ControlByte & 0x70)
         {
-        case 0x10: NDS::LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); ConvResult = TouchY; break;
-        case 0x50: NDS::LagFrameFlag = false; MAYBE_CALLBACK(InputCallback); ConvResult = TouchX; break;
+        case 0x10: NDS::AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); ConvResult = TouchY; break;
+        case 0x50: NDS::AltLagFrameFlag = false; MAYBE_CALLBACK(InputCallback); ConvResult = TouchX; break;
 
         case 0x60:
             {

@@ -599,7 +599,10 @@ void ARMv5::Execute()
             if (R[15] & 0x2) { NextInstr[1] >>= 16; CodeCycles = 0; }
             else             NextInstr[1] = CodeRead32(R[15], false);
 
-            MAYBE_CALLBACK(TraceCallback, Num | 2, R, CurInstr);
+            if (__builtin_expect(TraceMask & TRACE_ARM9_THUMB, TRACE_NONE))
+            {
+                TraceTrampoline(TRACE_ARM9_THUMB, R, CurInstr);
+            }
             MAYBE_CALLBACK(ExecuteCallback, R[15] - 2);
 
             // actually execute
@@ -614,7 +617,10 @@ void ARMv5::Execute()
             NextInstr[0] = NextInstr[1];
             NextInstr[1] = CodeRead32(R[15], false);
 
-            MAYBE_CALLBACK(TraceCallback, Num, R, CurInstr);
+            if (__builtin_expect(TraceMask & TRACE_ARM9_ARM, TRACE_NONE))
+            {
+                TraceTrampoline(TRACE_ARM9_ARM, R, CurInstr);
+            }
             MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
 
             // actually execute
@@ -754,7 +760,10 @@ void ARMv4::Execute()
             NextInstr[0] = NextInstr[1];
             NextInstr[1] = CodeRead16(R[15]);
 
-            MAYBE_CALLBACK(TraceCallback, Num | 2, R, CurInstr);
+            if (__builtin_expect(TraceMask & TRACE_ARM7_THUMB, TRACE_NONE))
+            {
+                TraceTrampoline(TRACE_ARM7_THUMB, R, CurInstr);
+            }
             MAYBE_CALLBACK(ExecuteCallback, R[15] - 2);
 
             // actually execute
@@ -769,7 +778,10 @@ void ARMv4::Execute()
             NextInstr[0] = NextInstr[1];
             NextInstr[1] = CodeRead32(R[15]);
 
-            MAYBE_CALLBACK(TraceCallback, Num, R, CurInstr);
+            if (__builtin_expect(TraceMask & TRACE_ARM7_ARM, TRACE_NONE))
+            {
+                TraceTrampoline(TRACE_ARM7_ARM, R, CurInstr);
+            }
             MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
 
             // actually execute
