@@ -603,7 +603,7 @@ void ARMv5::Execute()
             {
                 TraceTrampoline(TRACE_ARM9_THUMB, R, CurInstr);
             }
-            MAYBE_CALLBACK(ExecuteCallback, R[15] - 2);
+            MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
 
             // actually execute
             u32 icode = (CurInstr >> 6) & 0x3FF;
@@ -621,7 +621,7 @@ void ARMv5::Execute()
             {
                 TraceTrampoline(TRACE_ARM9_ARM, R, CurInstr);
             }
-            MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
+            MAYBE_CALLBACK(ExecuteCallback, R[15] - 8);
 
             // actually execute
             if (CheckCondition(CurInstr >> 28))
@@ -764,7 +764,7 @@ void ARMv4::Execute()
             {
                 TraceTrampoline(TRACE_ARM7_THUMB, R, CurInstr);
             }
-            MAYBE_CALLBACK(ExecuteCallback, R[15] - 2);
+            MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
 
             // actually execute
             u32 icode = (CurInstr >> 6);
@@ -782,7 +782,7 @@ void ARMv4::Execute()
             {
                 TraceTrampoline(TRACE_ARM7_ARM, R, CurInstr);
             }
-            MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
+            MAYBE_CALLBACK(ExecuteCallback, R[15] - 8);
 
             // actually execute
             if (CheckCondition(CurInstr >> 28))
