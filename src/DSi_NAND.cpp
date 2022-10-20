@@ -35,7 +35,6 @@
 namespace DSi_NAND
 {
 
-//FILE* CurFile;
 std::stringstream* CurFile;
 FATFS CurFS;
 
@@ -52,18 +51,19 @@ UINT FF_ReadNAND(BYTE* buf, LBA_t sector, UINT num);
 UINT FF_WriteNAND(BYTE* buf, LBA_t sector, UINT num);
 
 
-bool Init(FILE* nandfile, u8* es_keyY)
+bool Init(u8* es_keyY)
 {
-    std::stringstream* nandfile_ = reinterpret_cast<std::stringstream*>(nandfile);
-    //if (!nandfile)
-        //return false;
-    if (!nandfile_)
+    CurFile = nullptr;
+
+    std::string nandpath = Platform::GetConfigString(Platform::DSi_NANDPath);
+
+    std::stringstream* nandfile = reinterpret_cast<std::stringstream*>(Platform::OpenLocalFile(nandpath, "r+b"));
+
+    if (!nandfile)
         return false;
 
-    //fseek(nandfile, 0, SEEK_END);
-    //u64 nandlen = ftell(nandfile);
-    nandfile_->seekg(0, std::ios_base::end);
-    u64 nandlen = nandfile_->tellg();
+    nandfile->seekg(0, std::ios_base::end);
+    u64 nandlen = nandfile->tellg();
 
     ff_disk_open(FF_ReadNAND, FF_WriteNAND, (LBA_t)(nandlen>>9));
 
@@ -79,22 +79,18 @@ bool Init(FILE* nandfile, u8* es_keyY)
 
     // read the nocash footer
 
-    //fseek(nandfile, -0x40, SEEK_END);
-    nandfile_->seekg(-0x40, std::ios_base::end);
+    nandfile->seekg(-0x40, std::ios_base::end);
 
     char nand_footer[16];
     const char* nand_footer_ref = "DSi eMMC CID/CPU";
-    //fread(nand_footer, 1, 16, nandfile);
-    nandfile_->read(nand_footer, 16);
+    nandfile->read(nand_footer, 16);
     if (memcmp(nand_footer, nand_footer_ref, 16))
     {
         // There is another copy of the footer at 000FF800h for the case
         // that by external tools the image was cut off
         // See https://problemkaputt.de/gbatek.htm#dsisdmmcimages
-        //fseek(nandfile, 0x000FF800, SEEK_SET);
-        //fread(nand_footer, 1, 16, nandfile);
-        nandfile_->seekg(0x000FF800);
-        nandfile_->read(nand_footer, 16);
+        nandfile->seekg(0x000FF800);
+        nandfile->read(nand_footer, 16);
         if (memcmp(nand_footer, nand_footer_ref, 16))
         {
             printf("ERROR: NAND missing nocash footer\n");
@@ -102,10 +98,8 @@ bool Init(FILE* nandfile, u8* es_keyY)
         }
     }
 
-    //fread(eMMC_CID, 1, 16, nandfile);
-    //fread(&ConsoleID, 1, 8, nandfile);
-    nandfile_->read((char*)eMMC_CID, 16);
-    nandfile_->read((char*)&ConsoleID, 8);
+    nandfile->read((char*)eMMC_CID, 16);
+    nandfile->read((char*)&ConsoleID, 8);
 
     // init NAND crypto
 
@@ -143,8 +137,7 @@ bool Init(FILE* nandfile, u8* es_keyY)
     DSi_AES::DeriveNormalKey(keyX, keyY, tmp);
     DSi_AES::Swap16(ESKey, tmp);
 
-    //CurFile = nandfile;
-    CurFile = nandfile_;
+    CurFile = nandfile;
     return true;
 }
 
@@ -154,6 +147,12 @@ void DeInit()
     ff_disk_close();
 
     CurFile = nullptr;
+}
+
+
+std::stringstream* GetFile()
+{
+    return CurFile;
 }
 
 
@@ -195,9 +194,6 @@ u32 ReadFATBlock(u64 addr, u32 len, u8* buf)
     AES_ctx ctx;
     SetupFATCrypto(&ctx, ctr);
 
-    //fseek(CurFile, addr, SEEK_SET);
-    //u32 res = fread(buf, len, 1, CurFile);
-    //if (!res) return 0;
     CurFile->seekg(addr);
     CurFile->read((char*)buf, len);
     if (!CurFile->gcount()) return 0;
@@ -220,7 +216,6 @@ u32 WriteFATBlock(u64 addr, u32 len, u8* buf)
     AES_ctx ctx;
     SetupFATCrypto(&ctx, ctr);
 
-    //fseek(CurFile, addr, SEEK_SET);
     CurFile->seekp(addr);
 
     for (u32 s = 0; s < len; s += 0x200)
@@ -235,8 +230,6 @@ u32 WriteFATBlock(u64 addr, u32 len, u8* buf)
             DSi_AES::Swap16(&tempbuf[i], tmp);
         }
 
-        //u32 res = fwrite(tempbuf, 0x200, 1, CurFile);
-        //if (!res) return 0;
         int pos = CurFile->tellp();
         CurFile->write((char*)tempbuf, 0x200);
         if (pos == CurFile->tellp()) return 0;

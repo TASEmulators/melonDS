@@ -21,10 +21,10 @@
 
 #include <sstream>
 
-#include <string.h>
+#include <cstring>
 #include "FIFO.h"
 #include "FATStorage.h"
-
+#include "Savestate.h"
 
 class DSi_SDDevice;
 
