@@ -24,6 +24,8 @@
 #include "DSi.h"
 #include "SPU.h"
 
+#include "blip_buf/blip_buf.h"
+
 
 // SPU TODO
 // * capture addition modes, overflow bugs
@@ -68,15 +70,10 @@ int InterpType;
 s16 InterpCos[0x100];
 s16 InterpCubic[0x100][4];
 
-const u32 OutputBufferSize = 2*2048;
-ECL_INVISIBLE s16 OutputBackbuffer[2 * OutputBufferSize];
-u32 OutputBackbufferWritePosition;
-
-ECL_INVISIBLE s16 OutputFrontBuffer[2 * OutputBufferSize];
-u32 OutputFrontBufferWritePosition;
-u32 OutputFrontBufferReadPosition;
-
-Platform::Mutex* AudioLock;
+blip_t* BlipL;
+blip_t* BlipR;
+u32 BlipAccumulate;
+s32 LeftLatch, RightLatch;
 
 u16 Cnt;
 u8 MasterVolume;
@@ -96,7 +93,13 @@ bool Init()
     Capture[0] = new CaptureUnit(0);
     Capture[1] = new CaptureUnit(1);
 
-    AudioLock = Platform::Mutex_Create();
+    BlipL = blip_new(1024);
+    BlipR = blip_new(1024);
+    blip_set_rates(BlipL, 33513982, 44100);
+    blip_set_rates(BlipR, 33513982, 44100);
+    BlipAccumulate = 0;
+    LeftLatch = 0;
+    RightLatch = 0;
 
     InterpType = 0;
     ApplyBias = true;
@@ -137,12 +140,17 @@ void DeInit()
     delete Capture[0];
     delete Capture[1];
 
-    Platform::Mutex_Free(AudioLock);
+    blip_delete(BlipL);
+    blip_delete(BlipR);
 }
 
 void Reset()
 {
-    InitOutput();
+    blip_clear(BlipL);
+    blip_clear(BlipR);
+    BlipAccumulate = 0;
+    LeftLatch = 0;
+    RightLatch = 0;
 
     Cnt = 0;
     MasterVolume = 0;
@@ -159,13 +167,8 @@ void Reset()
 
 void Stop()
 {
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
-
-    OutputBackbufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
+    blip_clear(BlipL);
+    blip_clear(BlipR);
 }
 
 void DoSavestate(Savestate* file)
@@ -845,137 +848,33 @@ void Mix(u32 dummy)
         rightoutput &= 0xFFFFFFC0;
     }
 
-    // OutputBufferFrame can never get full because it's
-    // transfered to OutputBuffer at the end of the frame
-    OutputBackbuffer[OutputBackbufferWritePosition    ] = leftoutput >> 1;
-    OutputBackbuffer[OutputBackbufferWritePosition + 1] = rightoutput >> 1;
-    OutputBackbufferWritePosition += 2;
+    if (LeftLatch != leftoutput)
+    {
+        s32 diff = LeftLatch - leftoutput;
+        LeftLatch = leftoutput;
+        blip_add_delta(BlipL, BlipAccumulate, diff >> 1);
+    }
+
+    if (RightLatch != rightoutput)
+    {
+        s32 diff = RightLatch - rightoutput;
+        RightLatch = rightoutput;
+        blip_add_delta(BlipR, BlipAccumulate, diff >> 1);
+    }
+
+    BlipAccumulate += 1024;
 
     NDS::ScheduleEvent(NDS::Event_SPU, true, 1024, Mix, 0);
 }
 
-void TransferOutput()
+u32 ReadOutput(s16* data)
 {
-    Platform::Mutex_Lock(AudioLock);
-    for (u32 i = 0; i < OutputBackbufferWritePosition; i += 2)
-    {
-        OutputFrontBuffer[OutputFrontBufferWritePosition    ] = OutputBackbuffer[i   ];
-        OutputFrontBuffer[OutputFrontBufferWritePosition + 1] = OutputBackbuffer[i + 1];
-
-        OutputFrontBufferWritePosition += 2;
-        OutputFrontBufferWritePosition &= OutputBufferSize*2-1;
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            // advance the read position too, to avoid losing the entire FIFO
-            OutputFrontBufferReadPosition += 2;
-            OutputFrontBufferReadPosition &= OutputBufferSize*2-1;
-        }
-    }
-    OutputBackbufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-void TrimOutput()
-{
-    Platform::Mutex_Lock(AudioLock);
-    const int halflimit = (OutputBufferSize / 2);
-
-    int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-    if (readpos < 0) readpos += (OutputBufferSize*2);
-
-    OutputFrontBufferReadPosition = readpos;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-void DrainOutput()
-{
-    Platform::Mutex_Lock(AudioLock);
-    OutputFrontBufferWritePosition = 0;
-    OutputFrontBufferReadPosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-void InitOutput()
-{
-    Platform::Mutex_Lock(AudioLock);
-    memset(OutputBackbuffer, 0, 2*OutputBufferSize*2);
-    memset(OutputFrontBuffer, 0, 2*OutputBufferSize*2);
-    OutputFrontBufferReadPosition = 0;
-    OutputFrontBufferWritePosition = 0;
-    Platform::Mutex_Unlock(AudioLock);
-}
-
-int GetOutputSize()
-{
-    Platform::Mutex_Lock(AudioLock);
-
-    int ret;
-    if (OutputFrontBufferWritePosition >= OutputFrontBufferReadPosition)
-        ret = OutputFrontBufferWritePosition - OutputFrontBufferReadPosition;
-    else
-        ret = (OutputBufferSize*2) - OutputFrontBufferReadPosition + OutputFrontBufferWritePosition;
-
-    ret >>= 1;
-
-    Platform::Mutex_Unlock(AudioLock);
-    return ret;
-}
-
-void Sync(bool wait)
-{
-    // this function is currently not used anywhere
-    // depending on the usage context the thread safety measures could be made
-    // a lot faster
-
-    // sync to audio output in case the core is running too fast
-    // * wait=true: wait until enough audio data has been played
-    // * wait=false: merely skip some audio data to avoid a FIFO overflow
-
-    const int halflimit = (OutputBufferSize / 2);
-
-    if (wait)
-    {
-        // TODO: less CPU-intensive wait?
-        while (GetOutputSize() > halflimit);
-    }
-    else if (GetOutputSize() > halflimit)
-    {
-        Platform::Mutex_Lock(AudioLock);
-
-        int readpos = OutputFrontBufferWritePosition - (halflimit*2);
-        if (readpos < 0) readpos += (OutputBufferSize*2);
-
-        OutputFrontBufferReadPosition = readpos;
-
-        Platform::Mutex_Unlock(AudioLock);
-    }
-}
-
-int ReadOutput(s16* data, int samples)
-{
-    Platform::Mutex_Lock(AudioLock);
-    if (OutputFrontBufferReadPosition == OutputFrontBufferWritePosition)
-    {
-        Platform::Mutex_Unlock(AudioLock);
-        return 0;
-    }
-
-    for (int i = 0; i < samples; i++)
-    {
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition];
-        *data++ = OutputFrontBuffer[OutputFrontBufferReadPosition + 1];
-
-        OutputFrontBufferReadPosition += 2;
-        OutputFrontBufferReadPosition &= ((2*OutputBufferSize)-1);
-
-        if (OutputFrontBufferWritePosition == OutputFrontBufferReadPosition)
-        {
-            Platform::Mutex_Unlock(AudioLock);
-            return i+1;
-        }
-    }
-
-    Platform::Mutex_Unlock(AudioLock);
+    blip_end_frame(BlipL, BlipAccumulate);
+    blip_end_frame(BlipR, BlipAccumulate);
+    BlipAccumulate = 0;
+    u32 samples = blip_samples_avail(BlipL);
+    blip_read_samples(BlipL, data + 0, samples, true);
+    blip_read_samples(BlipR, data + 1, samples, true);
     return samples;
 }
 

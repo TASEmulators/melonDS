@@ -42,13 +42,7 @@ void SetApplyBias(bool enable);
 
 void Mix(u32 dummy);
 
-void TrimOutput();
-void DrainOutput();
-void InitOutput();
-int GetOutputSize();
-void Sync(bool wait);
-int ReadOutput(s16* data, int samples);
-void TransferOutput();
+u32 ReadOutput(s16* data);
 
 u8 Read8(u32 addr);
 u16 Read16(u32 addr);
