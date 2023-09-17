@@ -65,10 +65,6 @@ bool ShowOSD;
 int ConsoleType;
 bool DirectBoot;
 
-bool UseRealTime;
-bool FixedBootTime;
-int TimeAtBoot;
-
 #ifdef JIT_ENABLED
 bool JIT_Enable = false;
 int JIT_MaxBlockSize = 32;
@@ -110,6 +106,7 @@ int FirmwareBirthdayDay;
 int FirmwareFavouriteColour;
 std::string FirmwareMessage;
 std::string FirmwareMAC;
+std::string WifiSettingsPath = "wfcsettings.bin"; // Should this be configurable?
 
 int MPAudioMode;
 int MPRecvTimeout;
@@ -120,12 +117,15 @@ bool DirectLAN;
 bool SavestateRelocSRAM;
 
 int AudioInterp;
-int AudioBitrate;
+int AudioBitDepth;
 int AudioVolume;
+bool DSiVolumeSync;
 int MicInputType;
+std::string MicDevice;
 std::string MicWavPath;
 
 std::string LastROMFolder;
+std::string LastBIOSFolder;
 
 std::string RecentROMList[10];
 
@@ -143,6 +143,8 @@ bool PauseLostFocus;
 bool DSBatteryLevelOkay;
 int DSiBatteryLevel;
 bool DSiBatteryCharging;
+
+bool DSiFullBIOSBoot;
 
 CameraConfig Camera[2];
 
@@ -186,9 +188,13 @@ ConfigEntry ConfigFile[] =
     {"HKKey_FastForwardToggle",   0, &HKKeyMapping[HK_FastForwardToggle],   -1, true},
     {"HKKey_FullscreenToggle",    0, &HKKeyMapping[HK_FullscreenToggle],    -1, true},
     {"HKKey_SwapScreens",         0, &HKKeyMapping[HK_SwapScreens],         -1, true},
+    {"HKKey_SwapScreenEmphasis",  0, &HKKeyMapping[HK_SwapScreenEmphasis],  -1, true},
     {"HKKey_SolarSensorDecrease", 0, &HKKeyMapping[HK_SolarSensorDecrease], -1, true},
     {"HKKey_SolarSensorIncrease", 0, &HKKeyMapping[HK_SolarSensorIncrease], -1, true},
     {"HKKey_FrameStep",           0, &HKKeyMapping[HK_FrameStep],           -1, true},
+    {"HKKey_PowerButton",         0, &HKKeyMapping[HK_PowerButton],         -1, true},
+    {"HKKey_VolumeUp",            0, &HKKeyMapping[HK_VolumeUp],            -1, true},
+    {"HKKey_VolumeDown",          0, &HKKeyMapping[HK_VolumeDown],          -1, true},
 
     {"HKJoy_Lid",                 0, &HKJoyMapping[HK_Lid],                 -1, true},
     {"HKJoy_Mic",                 0, &HKJoyMapping[HK_Mic],                 -1, true},
@@ -198,9 +204,13 @@ ConfigEntry ConfigFile[] =
     {"HKJoy_FastForwardToggle",   0, &HKJoyMapping[HK_FastForwardToggle],   -1, true},
     {"HKJoy_FullscreenToggle",    0, &HKJoyMapping[HK_FullscreenToggle],    -1, true},
     {"HKJoy_SwapScreens",         0, &HKJoyMapping[HK_SwapScreens],         -1, true},
+    {"HKJoy_SwapScreenEmphasis",  0, &HKJoyMapping[HK_SwapScreenEmphasis],  -1, true},
     {"HKJoy_SolarSensorDecrease", 0, &HKJoyMapping[HK_SolarSensorDecrease], -1, true},
     {"HKJoy_SolarSensorIncrease", 0, &HKJoyMapping[HK_SolarSensorIncrease], -1, true},
     {"HKJoy_FrameStep",           0, &HKJoyMapping[HK_FrameStep],           -1, true},
+    {"HKJoy_PowerButton",         0, &HKJoyMapping[HK_PowerButton],         -1, true},
+    {"HKJoy_VolumeUp",            0, &HKJoyMapping[HK_VolumeUp],            -1, true},
+    {"HKJoy_VolumeDown",          0, &HKJoyMapping[HK_VolumeDown],          -1, true},
 
     {"JoystickID", 0, &JoystickID, 0, true},
 
@@ -234,10 +244,6 @@ ConfigEntry ConfigFile[] =
 
     {"ConsoleType", 0, &ConsoleType, 0, false},
     {"DirectBoot", 1, &DirectBoot, true, false},
-
-    {"UseRealTime", 1, &UseRealTime, false},
-    {"FixedBootTime", 1, &FixedBootTime, false},
-    {"TimeAtBoot", 0, &TimeAtBoot, 0},
 
 #ifdef JIT_ENABLED
     {"JIT_Enable", 1, &JIT_Enable, false, false},
@@ -294,12 +300,15 @@ ConfigEntry ConfigFile[] =
     {"SavStaRelocSRAM", 1, &SavestateRelocSRAM, false, false},
 
     {"AudioInterp", 0, &AudioInterp, 0, false},
-    {"AudioBitrate", 0, &AudioBitrate, 0, false},
+    {"AudioBitDepth", 0, &AudioBitDepth, 0, false},
     {"AudioVolume", 0, &AudioVolume, 256, true},
+    {"DSiVolumeSync", 1, &DSiVolumeSync, false, true},
     {"MicInputType", 0, &MicInputType, 1, false},
+    {"MicDevice", 2, &MicDevice, (std::string)"", false},
     {"MicWavPath", 2, &MicWavPath, (std::string)"", false},
 
     {"LastROMFolder", 2, &LastROMFolder, (std::string)"", true},
+    {"LastBIOSFolder", 2, &LastBIOSFolder, (std::string)"", true},
 
     {"RecentROM_0", 2, &RecentROMList[0], (std::string)"", true},
     {"RecentROM_1", 2, &RecentROMList[1], (std::string)"", true},
@@ -326,6 +335,8 @@ ConfigEntry ConfigFile[] =
     {"DSiBatteryLevel",    0, &DSiBatteryLevel, 0xF, true},
     {"DSiBatteryCharging", 1, &DSiBatteryCharging, true, true},
 
+    {"DSiFullBIOSBoot", 1, &DSiFullBIOSBoot, false, true},
+
     // TODO!!
     // we need a more elegant way to deal with this
     {"Camera0_InputType", 0, &Camera[0].InputType, 0, false},
@@ -343,24 +354,24 @@ ConfigEntry ConfigFile[] =
 
 void LoadFile(int inst)
 {
-    FILE* f;
+    Platform::FileHandle* f;
     if (inst > 0)
     {
         char name[100] = {0};
         snprintf(name, 99, kUniqueConfigFile, inst+1);
-        f = Platform::OpenLocalFile(name, "r");
+        f = Platform::OpenLocalFile(name, Platform::FileMode::ReadText);
     }
     else
-        f = Platform::OpenLocalFile(kConfigFile, "r");
+        f = Platform::OpenLocalFile(kConfigFile, Platform::FileMode::ReadText);
 
     if (!f) return;
 
     char linebuf[1024];
     char entryname[32];
     char entryval[1024];
-    while (!feof(f))
+    while (!Platform::IsEndOfFile(f))
     {
-        if (fgets(linebuf, 1024, f) == nullptr)
+        if (!Platform::FileReadLine(linebuf, 1024, f))
             break;
 
         int ret = sscanf(linebuf, "%31[A-Za-z_0-9]=%[^\t\r\n]", entryname, entryval);
@@ -386,7 +397,7 @@ void LoadFile(int inst)
         }
     }
 
-    fclose(f);
+    CloseFile(f);
 }
 
 void Load()
@@ -413,15 +424,15 @@ void Save()
 {
     int inst = Platform::InstanceID();
 
-    FILE* f;
+    Platform::FileHandle* f;
     if (inst > 0)
     {
         char name[100] = {0};
         snprintf(name, 99, kUniqueConfigFile, inst+1);
-        f = Platform::OpenLocalFile(name, "w");
+        f = Platform::OpenLocalFile(name, Platform::FileMode::WriteText);
     }
     else
-        f = Platform::OpenLocalFile(kConfigFile, "w");
+        f = Platform::OpenLocalFile(kConfigFile, Platform::FileMode::WriteText);
 
     if (!f) return;
 
@@ -432,13 +443,13 @@ void Save()
 
         switch (entry->Type)
         {
-        case 0: fprintf(f, "%s=%d\r\n", entry->Name, *(int*)entry->Value); break;
-        case 1: fprintf(f, "%s=%d\r\n", entry->Name, *(bool*)entry->Value ? 1:0); break;
-        case 2: fprintf(f, "%s=%s\r\n", entry->Name, (*(std::string*)entry->Value).c_str()); break;
+        case 0: Platform::FileWriteFormatted(f, "%s=%d\r\n", entry->Name, *(int*)entry->Value); break;
+        case 1: Platform::FileWriteFormatted(f, "%s=%d\r\n", entry->Name, *(bool*)entry->Value ? 1:0); break;
+        case 2: Platform::FileWriteFormatted(f, "%s=%s\r\n", entry->Name, (*(std::string*)entry->Value).c_str()); break;
         }
     }
 
-    fclose(f);
+    CloseFile(f);
 }
 
 }

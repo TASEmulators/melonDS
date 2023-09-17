@@ -72,6 +72,7 @@
 #include "RAMInfoDialog.h"
 #include "TitleManagerDialog.h"
 #include "PowerManagement/PowerManagementDialog.h"
+#include "AudioInOut.h"
 
 #include "types.h"
 #include "version.h"
@@ -88,6 +89,7 @@
 #include "Platform.h"
 #include "LocalMP.h"
 #include "Config.h"
+#include "DSi_I2C.h"
 
 #include "Savestate.h"
 
@@ -145,7 +147,7 @@ const QStringList ArchiveExtensions
     ".tar.lz",
     ".tar.lzma", ".tlz",
     ".tar.lrz", ".tlrz",
-    ".tar.lzo", ".tzo",
+    ".tar.lzo", ".tzo"
 #endif
 };
 
@@ -161,19 +163,6 @@ int videoRenderer;
 GPU::RenderSettings videoSettings;
 bool videoSettingsDirty;
 
-SDL_AudioDeviceID audioDevice;
-int audioFreq;
-bool audioMuted;
-SDL_cond* audioSync;
-SDL_mutex* audioSyncLock;
-
-SDL_AudioDeviceID micDevice;
-s16 micExtBuffer[2048];
-u32 micExtBufferWritePos;
-
-u32 micWavLength;
-s16* micWavBuffer;
-
 CameraManager* camManager[2];
 bool camStarted[2];
 
@@ -185,234 +174,14 @@ const struct { int id; float ratio; const char* label; } aspectRatios[] =
     { 2, (21.f / 9) / (4.f / 3),  "21:9" },
     { 3, 0,                       "window" }
 };
-
-void micCallback(void* data, Uint8* stream, int len);
-
-
-
-void audioCallback(void* data, Uint8* stream, int len)
-{
-    len /= (sizeof(s16) * 2);
-
-    // resample incoming audio to match the output sample rate
-
-    int len_in = Frontend::AudioOut_GetNumSamples(len);
-    s16 buf_in[1024*2];
-    int num_in;
-
-    SDL_LockMutex(audioSyncLock);
-    num_in = SPU::ReadOutput(buf_in, len_in);
-    SDL_CondSignal(audioSync);
-    SDL_UnlockMutex(audioSyncLock);
-
-    if ((num_in < 1) || audioMuted)
-    {
-        memset(stream, 0, len*sizeof(s16)*2);
-        return;
-    }
-
-    int margin = 6;
-    if (num_in < len_in-margin)
-    {
-        int last = num_in-1;
-
-        for (int i = num_in; i < len_in-margin; i++)
-            ((u32*)buf_in)[i] = ((u32*)buf_in)[last];
-
-        num_in = len_in-margin;
-    }
-
-    Frontend::AudioOut_Resample(buf_in, num_in, (s16*)stream, len, Config::AudioVolume);
-}
-
-void audioMute()
-{
-    int inst = Platform::InstanceID();
-    audioMuted = false;
-
-    switch (Config::MPAudioMode)
-    {
-    case 1: // only instance 1
-        if (inst > 0) audioMuted = true;
-        break;
-
-    case 2: // only currently focused instance
-        if (mainWindow != nullptr)
-            audioMuted = !mainWindow->isActiveWindow();
-        break;
-    }
-}
-
-
-void micOpen()
-{
-    if (Config::MicInputType != 1)
-    {
-        micDevice = 0;
-        return;
-    }
-
-    SDL_AudioSpec whatIwant, whatIget;
-    memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
-    whatIwant.freq = 44100;
-    whatIwant.format = AUDIO_S16LSB;
-    whatIwant.channels = 1;
-    whatIwant.samples = 1024;
-    whatIwant.callback = micCallback;
-    micDevice = SDL_OpenAudioDevice(NULL, 1, &whatIwant, &whatIget, 0);
-    if (!micDevice)
-    {
-        printf("Mic init failed: %s\n", SDL_GetError());
-    }
-    else
-    {
-        SDL_PauseAudioDevice(micDevice, 0);
-    }
-}
-
-void micClose()
-{
-    if (micDevice)
-        SDL_CloseAudioDevice(micDevice);
-
-    micDevice = 0;
-}
-
-void micLoadWav(std::string name)
-{
-    SDL_AudioSpec format;
-    memset(&format, 0, sizeof(SDL_AudioSpec));
-
-    if (micWavBuffer) delete[] micWavBuffer;
-    micWavBuffer = nullptr;
-    micWavLength = 0;
-
-    u8* buf;
-    u32 len;
-    if (!SDL_LoadWAV(name.c_str(), &format, &buf, &len))
-        return;
-
-    const u64 dstfreq = 44100;
-
-    int srcinc = format.channels;
-    len /= ((SDL_AUDIO_BITSIZE(format.format) / 8) * srcinc);
-
-    micWavLength = (len * dstfreq) / format.freq;
-    if (micWavLength < 735) micWavLength = 735;
-    micWavBuffer = new s16[micWavLength];
-
-    float res_incr = len / (float)micWavLength;
-    float res_timer = 0;
-    int res_pos = 0;
-
-    for (int i = 0; i < micWavLength; i++)
-    {
-        u16 val = 0;
-
-        switch (SDL_AUDIO_BITSIZE(format.format))
-        {
-        case 8:
-            val = buf[res_pos] << 8;
-            break;
-
-        case 16:
-            if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                val = (buf[res_pos*2] << 8) | buf[res_pos*2 + 1];
-            else
-                val = (buf[res_pos*2 + 1] << 8) | buf[res_pos*2];
-            break;
-
-        case 32:
-            if (SDL_AUDIO_ISFLOAT(format.format))
-            {
-                u32 rawval;
-                if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                    rawval = (buf[res_pos*4] << 24) | (buf[res_pos*4 + 1] << 16) | (buf[res_pos*4 + 2] << 8) | buf[res_pos*4 + 3];
-                else
-                    rawval = (buf[res_pos*4 + 3] << 24) | (buf[res_pos*4 + 2] << 16) | (buf[res_pos*4 + 1] << 8) | buf[res_pos*4];
-
-                float fval = *(float*)&rawval;
-                s32 ival = (s32)(fval * 0x8000);
-                ival = std::clamp(ival, -0x8000, 0x7FFF);
-                val = (s16)ival;
-            }
-            else if (SDL_AUDIO_ISBIGENDIAN(format.format))
-                val = (buf[res_pos*4] << 8) | buf[res_pos*4 + 1];
-            else
-                val = (buf[res_pos*4 + 3] << 8) | buf[res_pos*4 + 2];
-            break;
-        }
-
-        if (SDL_AUDIO_ISUNSIGNED(format.format))
-            val ^= 0x8000;
-
-        micWavBuffer[i] = val;
-
-        res_timer += res_incr;
-        while (res_timer >= 1.0)
-        {
-            res_timer -= 1.0;
-            res_pos += srcinc;
-        }
-    }
-
-    SDL_FreeWAV(buf);
-}
-
-void micCallback(void* data, Uint8* stream, int len)
-{
-    s16* input = (s16*)stream;
-    len /= sizeof(s16);
-
-    int maxlen = sizeof(micExtBuffer) / sizeof(s16);
-
-    if ((micExtBufferWritePos + len) > maxlen)
-    {
-        u32 len1 = maxlen - micExtBufferWritePos;
-        memcpy(&micExtBuffer[micExtBufferWritePos], &input[0], len1*sizeof(s16));
-        memcpy(&micExtBuffer[0], &input[len1], (len - len1)*sizeof(s16));
-        micExtBufferWritePos = len - len1;
-    }
-    else
-    {
-        memcpy(&micExtBuffer[micExtBufferWritePos], input, len*sizeof(s16));
-        micExtBufferWritePos += len;
-    }
-}
-
-void micProcess()
-{
-    int type = Config::MicInputType;
-    bool cmd = Input::HotkeyDown(HK_Mic);
-
-    if (type != 1 && !cmd)
-    {
-        type = 0;
-    }
-
-    switch (type)
-    {
-    case 0: // no mic
-        Frontend::Mic_FeedSilence();
-        break;
-
-    case 1: // host mic
-    case 3: // WAV
-        Frontend::Mic_FeedExternalBuffer();
-        break;
-
-    case 2: // white noise
-        Frontend::Mic_FeedNoise();
-        break;
-    }
-}
+constexpr int AspectRatiosNum = sizeof(aspectRatios) / sizeof(aspectRatios[0]);
 
 
 EmuThread::EmuThread(QObject* parent) : QThread(parent)
 {
-    EmuStatus = 0;
-    EmuRunning = 2;
-    EmuPause = 0;
+    EmuStatus = emuStatus_Exit;
+    EmuRunning = emuStatus_Paused;
+    EmuPauseStack = EmuPauseStackRunning;
     RunningSomething = false;
 
     connect(this, SIGNAL(windowUpdate()), mainWindow->panelWidget, SLOT(repaint()));
@@ -426,6 +195,7 @@ EmuThread::EmuThread(QObject* parent) : QThread(parent)
     connect(this, SIGNAL(screenLayoutChange()), mainWindow->panelWidget, SLOT(onScreenLayoutChanged()));
     connect(this, SIGNAL(windowFullscreenToggle()), mainWindow, SLOT(onFullscreenToggled()));
     connect(this, SIGNAL(swapScreensToggle()), mainWindow->actScreenSwap, SLOT(trigger()));
+    connect(this, SIGNAL(screenEmphasisToggle()), mainWindow, SLOT(onScreenEmphasisToggled()));
 
     static_cast<ScreenPanelGL*>(mainWindow->panel)->transferLayout(this);
 }
@@ -580,10 +350,11 @@ void EmuThread::run()
     double lastMeasureTime = lastTime;
 
     u32 winUpdateCount = 0, winUpdateFreq = 1;
+    u8 dsiVolumeLevel = 0x1F;
 
     char melontitle[100];
 
-    while (EmuRunning != 0)
+    while (EmuRunning != emuStatus_Exit)
     {
         Input::Process();
 
@@ -596,6 +367,7 @@ void EmuThread::run()
         if (Input::HotkeyPressed(HK_FullscreenToggle)) emit windowFullscreenToggle();
 
         if (Input::HotkeyPressed(HK_SwapScreens)) emit swapScreensToggle();
+        if (Input::HotkeyPressed(HK_SwapScreenEmphasis)) emit screenEmphasisToggle();
 
         if (Input::HotkeyPressed(HK_SolarSensorDecrease))
         {
@@ -618,10 +390,46 @@ void EmuThread::run()
             }
         }
 
-        if (EmuRunning == 1 || EmuRunning == 3)
+        if (NDS::ConsoleType == 1)
         {
-            EmuStatus = 1;
-            if (EmuRunning == 3) EmuRunning = 2;
+            double currentTime = SDL_GetPerformanceCounter() * perfCountsSec;
+
+            // Handle power button
+            if (Input::HotkeyDown(HK_PowerButton))
+            {
+                DSi_BPTWL::SetPowerButtonHeld(currentTime);
+            }
+            else if (Input::HotkeyReleased(HK_PowerButton))
+            {
+                DSi_BPTWL::SetPowerButtonReleased(currentTime);
+            }
+
+            // Handle volume buttons
+            if (Input::HotkeyDown(HK_VolumeUp))
+            {
+                DSi_BPTWL::SetVolumeSwitchHeld(DSi_BPTWL::volumeKey_Up);
+            }
+            else if (Input::HotkeyReleased(HK_VolumeUp))
+            {
+                DSi_BPTWL::SetVolumeSwitchReleased(DSi_BPTWL::volumeKey_Up);
+            }
+
+            if (Input::HotkeyDown(HK_VolumeDown))
+            {
+                DSi_BPTWL::SetVolumeSwitchHeld(DSi_BPTWL::volumeKey_Down);
+            }
+            else if (Input::HotkeyReleased(HK_VolumeDown))
+            {
+                DSi_BPTWL::SetVolumeSwitchReleased(DSi_BPTWL::volumeKey_Down);
+            }
+
+            DSi_BPTWL::ProcessVolumeSwitchInput(currentTime);
+        }
+
+        if (EmuRunning == emuStatus_Running || EmuRunning == emuStatus_FrameStep)
+        {
+            EmuStatus = emuStatus_Running;
+            if (EmuRunning == emuStatus_FrameStep) EmuRunning = emuStatus_Paused;
 
             // update render settings if needed
             // HACK:
@@ -663,10 +471,10 @@ void EmuThread::run()
             }
 
             // microphone input
-            micProcess();
+            AudioInOut::MicProcess();
 
             // auto screen layout
-            if (Config::ScreenSizing == screenSizing_Auto)
+            if (Config::ScreenSizing == Frontend::screenSizing_Auto)
             {
                 mainScreenPos[2] = mainScreenPos[1];
                 mainScreenPos[1] = mainScreenPos[0];
@@ -678,14 +486,14 @@ void EmuThread::run()
                 {
                     // constant flickering, likely displaying 3D on both screens
                     // TODO: when both screens are used for 2D only...???
-                    guess = screenSizing_Even;
+                    guess = Frontend::screenSizing_Even;
                 }
                 else
                 {
                     if (mainScreenPos[0] == 1)
-                        guess = screenSizing_EmphTop;
+                        guess = Frontend::screenSizing_EmphTop;
                     else
-                        guess = screenSizing_EmphBot;
+                        guess = Frontend::screenSizing_EmphBot;
                 }
 
                 if (guess != autoScreenSizing)
@@ -721,7 +529,7 @@ void EmuThread::run()
             MelonCap::Update();
 #endif // MELONCAP
 
-            if (EmuRunning == 0) break;
+            if (EmuRunning == emuStatus_Exit) break;
 
             winUpdateCount++;
             if (winUpdateCount >= winUpdateFreq && !oglContext)
@@ -737,16 +545,20 @@ void EmuThread::run()
                 oglContext->SetSwapInterval(0);
             }
 
-            if (Config::AudioSync && !fastforward && audioDevice)
+            if (Config::DSiVolumeSync && NDS::ConsoleType == 1)
             {
-                SDL_LockMutex(audioSyncLock);
-                while (SPU::GetOutputSize() > 1024)
+                u8 volumeLevel = DSi_BPTWL::GetVolumeLevel();
+                if (volumeLevel != dsiVolumeLevel)
                 {
-                    int ret = SDL_CondWaitTimeout(audioSync, audioSyncLock, 500);
-                    if (ret == SDL_MUTEX_TIMEDOUT) break;
+                    dsiVolumeLevel = volumeLevel;
+                    emit syncVolumeLevel();
                 }
-                SDL_UnlockMutex(audioSyncLock);
+
+                Config::AudioVolume = volumeLevel * (256.0 / 31.0);
             }
+
+            if (Config::AudioSync && !fastforward)
+                AudioInOut::AudioSync();
 
             double frametimeStep = nlines / (60.0 * 263.0);
 
@@ -821,21 +633,21 @@ void EmuThread::run()
             if (oglContext)
                 drawScreenGL();
 
-            int contextRequest = ContextRequest;
-            if (contextRequest == 1)
+            ContextRequestKind contextRequest = ContextRequest;
+            if (contextRequest == contextRequest_InitGL)
             {
                 initOpenGL();
-                ContextRequest = 0;
+                ContextRequest = contextRequest_None;
             }
-            else if (contextRequest == 2)
+            else if (contextRequest == contextRequest_DeInitGL)
             {
                 deinitOpenGL();
-                ContextRequest = 0;
+                ContextRequest = contextRequest_None;
             }
         }
     }
 
-    EmuStatus = 0;
+    EmuStatus = emuStatus_Exit;
 
     GPU::DeInitRenderer();
     NDS::DeInit();
@@ -849,72 +661,68 @@ void EmuThread::changeWindowTitle(char* title)
 
 void EmuThread::emuRun()
 {
-    EmuRunning = 1;
-    EmuPause = 0;
+    EmuRunning = emuStatus_Running;
+    EmuPauseStack = EmuPauseStackRunning;
     RunningSomething = true;
 
     // checkme
     emit windowEmuStart();
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 0);
-    micOpen();
+    AudioInOut::Enable();
 }
 
 void EmuThread::initContext()
 {
-    ContextRequest = 1;
-    while (ContextRequest != 0);
+    ContextRequest = contextRequest_InitGL;
+    while (ContextRequest != contextRequest_None);
 }
 
 void EmuThread::deinitContext()
 {
-    ContextRequest = 2;
-    while (ContextRequest != 0);
+    ContextRequest = contextRequest_DeInitGL;
+    while (ContextRequest != contextRequest_None);
 }
 
 void EmuThread::emuPause()
 {
-    EmuPause++;
-    if (EmuPause > 1) return;
+    EmuPauseStack++;
+    if (EmuPauseStack > EmuPauseStackPauseThreshold) return;
 
     PrevEmuStatus = EmuRunning;
-    EmuRunning = 2;
-    while (EmuStatus != 2);
+    EmuRunning = emuStatus_Paused;
+    while (EmuStatus != emuStatus_Paused);
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 1);
-    micClose();
+    AudioInOut::Disable();
 }
 
 void EmuThread::emuUnpause()
 {
-    if (EmuPause < 1) return;
+    if (EmuPauseStack < EmuPauseStackPauseThreshold) return;
 
-    EmuPause--;
-    if (EmuPause > 0) return;
+    EmuPauseStack--;
+    if (EmuPauseStack >= EmuPauseStackPauseThreshold) return;
 
     EmuRunning = PrevEmuStatus;
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 0);
-    micOpen();
+    AudioInOut::Enable();
 }
 
 void EmuThread::emuStop()
 {
-    EmuRunning = 0;
-    EmuPause = 0;
+    EmuRunning = emuStatus_Exit;
+    EmuPauseStack = EmuPauseStackRunning;
 
-    if (audioDevice) SDL_PauseAudioDevice(audioDevice, 1);
-    micClose();
+    AudioInOut::Disable();
 }
 
 void EmuThread::emuFrameStep()
 {
-    if (EmuPause < 1) emit windowEmuPause();
-    EmuRunning = 3;
+    if (EmuPauseStack < EmuPauseStackPauseThreshold) emit windowEmuPause();
+    EmuRunning = emuStatus_FrameStep;
 }
 
 bool EmuThread::emuIsRunning()
 {
-    return (EmuRunning == 1);
+    return EmuRunning == emuStatus_Running;
 }
 
 bool EmuThread::emuIsActive()
@@ -1023,9 +831,9 @@ void ScreenHandler::screenSetupLayout(int w, int h)
         aspectBot = ((float) w / h) / (4.f / 3.f);
 
     Frontend::SetupScreenLayout(w, h,
-                                Config::ScreenLayout,
-                                Config::ScreenRotation,
-                                sizing,
+                                static_cast<Frontend::ScreenLayout>(Config::ScreenLayout),
+                                static_cast<Frontend::ScreenRotation>(Config::ScreenRotation),
+                                static_cast<Frontend::ScreenSizing>(sizing),
                                 Config::ScreenGap,
                                 Config::IntegerScaling != 0,
                                 Config::ScreenSwap != 0,
@@ -1037,32 +845,34 @@ void ScreenHandler::screenSetupLayout(int w, int h)
 
 QSize ScreenHandler::screenGetMinSize(int factor = 1)
 {
-    bool isHori = (Config::ScreenRotation == 1 || Config::ScreenRotation == 3);
+    bool isHori = (Config::ScreenRotation == Frontend::screenRot_90Deg
+        || Config::ScreenRotation == Frontend::screenRot_270Deg);
     int gap = Config::ScreenGap * factor;
 
     int w = 256 * factor;
     int h = 192 * factor;
 
-    if (Config::ScreenSizing == 4 || Config::ScreenSizing == 5)
+    if (Config::ScreenSizing == Frontend::screenSizing_TopOnly
+        || Config::ScreenSizing == Frontend::screenSizing_BotOnly)
     {
         return QSize(w, h);
     }
 
-    if (Config::ScreenLayout == 0) // natural
+    if (Config::ScreenLayout == Frontend::screenLayout_Natural)
     {
         if (isHori)
             return QSize(h+gap+h, w);
         else
             return QSize(w, h+gap+h);
     }
-    else if (Config::ScreenLayout == 1) // vertical
+    else if (Config::ScreenLayout == Frontend::screenLayout_Vertical)
     {
         if (isHori)
             return QSize(h, w+gap+w);
         else
             return QSize(w, h+gap+h);
     }
-    else if (Config::ScreenLayout == 2) // horizontal
+    else if (Config::ScreenLayout == Frontend::screenLayout_Horizontal)
     {
         if (isHori)
             return QSize(h+gap+h, w);
@@ -1147,6 +957,8 @@ void ScreenHandler::screenHandleTablet(QTabletEvent* event)
             touching = false;
         }
         break;
+    default:
+        break;
     }
 }
 
@@ -1177,6 +989,8 @@ void ScreenHandler::screenHandleTouch(QTouchEvent* event)
             NDS::ReleaseScreen();
             touching = false;
         }
+        break;
+    default:
         break;
     }
 }
@@ -1249,8 +1063,6 @@ void ScreenPanelNative::paintEvent(QPaintEvent* event)
         memcpy(screen[0].scanLine(0), GPU::Framebuffer[frontbuf][0], 256 * 192 * 4);
         memcpy(screen[1].scanLine(0), GPU::Framebuffer[frontbuf][1], 256 * 192 * 4);
         emuThread->FrontBufferLock.unlock();
-
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, Config::ScreenFilter != 0);
 
         QRect screenrc(0, 0, 256, 192);
 
@@ -1516,9 +1328,23 @@ static bool SupportedArchiveByMimetype(const QMimeType& mimetype)
     return MimeTypeInList(mimetype, ArchiveMimeTypes);
 }
 
+static bool ZstdNdsRomByExtension(const QString& filename)
+{
+    return filename.endsWith(".zst", Qt::CaseInsensitive) &&
+        NdsRomByExtension(filename.left(filename.size() - 4));
+}
+
+static bool ZstdGbaRomByExtension(const QString& filename)
+{
+    return filename.endsWith(".zst", Qt::CaseInsensitive) &&
+        GbaRomByExtension(filename.left(filename.size() - 4));
+}
 
 static bool FileIsSupportedFiletype(const QString& filename, bool insideArchive = false)
 {
+    if (ZstdNdsRomByExtension(filename) || ZstdGbaRomByExtension(filename))
+        return true;
+
     if (NdsRomByExtension(filename) || GbaRomByExtension(filename) || SupportedArchiveByExtension(filename))
         return true;
 
@@ -1673,6 +1499,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
         actQuit = menu->addAction("Quit");
         connect(actQuit, &QAction::triggered, this, &MainWindow::onQuit);
+        actQuit->setShortcut(QKeySequence(QKeySequence::StandardKey::Quit));
     }
     {
         QMenu* menu = menubar->addMenu("System");
@@ -1790,7 +1617,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             QMenu* submenu = menu->addMenu("Screen rotation");
             grpScreenRotation = new QActionGroup(submenu);
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < Frontend::screenRot_MAX; i++)
             {
                 int data = i*90;
                 actScreenRotation[i] = submenu->addAction(QString("%1°").arg(data));
@@ -1824,7 +1651,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
             const char* screenlayout[] = {"Natural", "Vertical", "Horizontal", "Hybrid"};
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < Frontend::screenLayout_MAX; i++)
             {
                 actScreenLayout[i] = submenu->addAction(QString(screenlayout[i]));
                 actScreenLayout[i]->setActionGroup(grpScreenLayout);
@@ -1846,7 +1673,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
             const char* screensizing[] = {"Even", "Emphasize top", "Emphasize bottom", "Auto", "Top only", "Bottom only"};
 
-            for (int i = 0; i < screenSizing_MAX; i++)
+            for (int i = 0; i < Frontend::screenSizing_MAX; i++)
             {
                 actScreenSizing[i] = submenu->addAction(QString(screensizing[i]));
                 actScreenSizing[i]->setActionGroup(grpScreenSizing);
@@ -1866,8 +1693,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             QMenu* submenu = menu->addMenu("Aspect ratio");
             grpScreenAspectTop = new QActionGroup(submenu);
             grpScreenAspectBot = new QActionGroup(submenu);
-            actScreenAspectTop = new QAction*[sizeof(aspectRatios) / sizeof(aspectRatios[0])];
-            actScreenAspectBot = new QAction*[sizeof(aspectRatios) / sizeof(aspectRatios[0])];
+            actScreenAspectTop = new QAction*[AspectRatiosNum];
+            actScreenAspectBot = new QAction*[AspectRatiosNum];
 
             for (int i = 0; i < 2; i++)
             {
@@ -1881,7 +1708,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
                     actions = actScreenAspectBot;
                 }
 
-                for (int j = 0; j < sizeof(aspectRatios) / sizeof(aspectRatios[0]); j++)
+                for (int j = 0; j < AspectRatiosNum; j++)
                 {
                     auto ratio = aspectRatios[j];
                     QString label = QString("%1 %2").arg(i ? "Bottom" : "Top", ratio.label);
@@ -1986,7 +1813,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
     actScreenSwap->setChecked(Config::ScreenSwap);
 
-    for (int i = 0; i < sizeof(aspectRatios) / sizeof(aspectRatios[0]); i++)
+    for (int i = 0; i < AspectRatiosNum; i++)
     {
         if (Config::ScreenAspectTop == aspectRatios[i].id)
             actScreenAspectTop[i]->setChecked(true);
@@ -2053,6 +1880,8 @@ void MainWindow::createScreenPanel()
         panelWidget->show();
     }
     setCentralWidget(panelWidget);
+
+    actScreenFiltering->setEnabled(hasOGL);
 
     connect(this, SIGNAL(screenLayoutChange()), panelWidget, SLOT(onScreenLayoutChanged()));
     emit screenLayoutChange();
@@ -2155,7 +1984,12 @@ void MainWindow::dropEvent(QDropEvent* event)
     const auto matchMode = romInsideArchive ? QMimeDatabase::MatchExtension : QMimeDatabase::MatchDefault;
     const QMimeType mimetype = QMimeDatabase().mimeTypeForFile(filename, matchMode);
 
-    if (NdsRomByExtension(filename) || NdsRomByMimetype(mimetype))
+    bool isNdsRom = NdsRomByExtension(filename) || NdsRomByMimetype(mimetype);
+    bool isGbaRom = GbaRomByExtension(filename) || GbaRomByMimetype(mimetype);
+    isNdsRom |= ZstdNdsRomByExtension(filename);
+    isGbaRom |= ZstdGbaRomByExtension(filename);
+
+    if (isNdsRom)
     {
         if (!ROMManager::LoadROM(file, true))
         {
@@ -2175,7 +2009,7 @@ void MainWindow::dropEvent(QDropEvent* event)
 
         updateCartInserted(false);
     }
-    else if (GbaRomByExtension(filename) || GbaRomByMimetype(mimetype))
+    else if (isGbaRom)
     {
         if (!ROMManager::LoadGBAROM(file))
         {
@@ -2199,12 +2033,12 @@ void MainWindow::dropEvent(QDropEvent* event)
 
 void MainWindow::focusInEvent(QFocusEvent* event)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 }
 
 void MainWindow::focusOutEvent(QFocusEvent* event)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 }
 
 void MainWindow::onAppStateChanged(Qt::ApplicationState state)
@@ -2400,14 +2234,25 @@ QStringList MainWindow::pickROM(bool gba)
     const QString console = gba ? "GBA" : "DS";
     const QStringList& romexts = gba ? GbaRomExtensions : NdsRomExtensions;
 
-    static const QString filterSuffix = ArchiveExtensions.empty()
-        ? ");;Any file (*.*)"
-        : " *" + ArchiveExtensions.join(" *") + ");;Any file (*.*)";
+    QString rawROMs = romexts.join(" *");
+    QString extraFilters = ";;" + console + " ROMs (*" + rawROMs;
+    QString allROMs = rawROMs;
+
+    QString zstdROMs = "*" + romexts.join(".zst *") + ".zst";
+    extraFilters += ");;Zstandard-compressed " + console + " ROMs (" + zstdROMs + ")";
+    allROMs += " " + zstdROMs;
+
+#ifdef ARCHIVE_SUPPORT_ENABLED
+    QString archives = "*" + ArchiveExtensions.join(" *");
+    extraFilters += ";;Archives (" + archives + ")";
+    allROMs += " " + archives;
+#endif
+    extraFilters += ";;All files (*.*)";
 
     const QString filename = QFileDialog::getOpenFileName(
         this, "Open " + console + " ROM",
         QString::fromStdString(Config::LastROMFolder),
-        console + " ROMs (*" + romexts.join(" *") + filterSuffix
+        "All supported files (*" + allROMs + ")" + extraFilters
     );
 
     if (filename.isEmpty()) return {};
@@ -2581,7 +2426,7 @@ void MainWindow::onBootFirmware()
     }
 
     if (!ROMManager::LoadBIOS())
-{
+    {
         // TODO: better error reporting?
         QMessageBox::critical(this, "melonDS", "This firmware is not bootable.");
         emuThread->emuUnpause();
@@ -2798,7 +2643,7 @@ void MainWindow::onImportSavefile()
         return;
     }
 
-    FILE* f = Platform::OpenFile(path.toStdString(), "rb", true);
+    Platform::FileHandle* f = Platform::OpenFile(path.toStdString(), Platform::FileMode::Read);
     if (!f)
     {
         QMessageBox::critical(this, "melonDS", "Could not open the given savefile.");
@@ -2820,18 +2665,16 @@ void MainWindow::onImportSavefile()
         ROMManager::Reset();
     }
 
-    u32 len;
-    fseek(f, 0, SEEK_END);
-    len = (u32)ftell(f);
+    u32 len = FileLength(f);
 
     u8* data = new u8[len];
-    fseek(f, 0, SEEK_SET);
-    fread(data, len, 1, f);
+    Platform::FileRewind(f);
+    Platform::FileRead(data, len, 1, f);
 
     NDS::LoadSave(data, len);
     delete[] data;
 
-    fclose(f);
+    CloseFile(f);
     emuThread->emuUnpause();
 }
 
@@ -3025,7 +2868,9 @@ void MainWindow::onCameraSettingsFinished(int res)
 
 void MainWindow::onOpenAudioSettings()
 {
-    AudioSettingsDialog* dlg = AudioSettingsDialog::openDlg(this);
+    AudioSettingsDialog* dlg = AudioSettingsDialog::openDlg(this, emuThread->emuIsActive());
+    connect(emuThread, &EmuThread::syncVolumeLevel, dlg, &AudioSettingsDialog::onSyncVolumeLevel);
+    connect(emuThread, &EmuThread::windowEmuStart, dlg, &AudioSettingsDialog::onConsoleReset);
     connect(dlg, &AudioSettingsDialog::updateAudioSettings, this, &MainWindow::onUpdateAudioSettings);
     connect(dlg, &AudioSettingsDialog::finished, this, &MainWindow::onAudioSettingsFinished);
 }
@@ -3066,35 +2911,15 @@ void MainWindow::onUpdateAudioSettings()
 {
     SPU::SetInterpolation(Config::AudioInterp);
 
-    if (Config::AudioBitrate == 0)
+    if (Config::AudioBitDepth == 0)
         SPU::SetDegrade10Bit(NDS::ConsoleType == 0);
     else
-        SPU::SetDegrade10Bit(Config::AudioBitrate == 1);
+        SPU::SetDegrade10Bit(Config::AudioBitDepth == 1);
 }
 
 void MainWindow::onAudioSettingsFinished(int res)
 {
-    micClose();
-
-    SPU::SetInterpolation(Config::AudioInterp);
-
-    if (Config::MicInputType == 3)
-    {
-        micLoadWav(Config::MicWavPath);
-        Frontend::Mic_SetExternalBuffer(micWavBuffer, micWavLength);
-    }
-    else
-    {
-        delete[] micWavBuffer;
-        micWavBuffer = nullptr;
-
-        if (Config::MicInputType == 1)
-            Frontend::Mic_SetExternalBuffer(micExtBuffer, sizeof(micExtBuffer)/sizeof(s16));
-        else
-            Frontend::Mic_SetExternalBuffer(NULL, 0);
-    }
-
-    micOpen();
+    AudioInOut::UpdateSettings();
 }
 
 void MainWindow::onOpenMPSettings()
@@ -3107,7 +2932,7 @@ void MainWindow::onOpenMPSettings()
 
 void MainWindow::onMPSettingsFinished(int res)
 {
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
     LocalMP::SetRecvTimeout(Config::MPRecvTimeout);
 
     emuThread->emuUnpause();
@@ -3191,18 +3016,18 @@ void MainWindow::onChangeScreenSwap(bool checked)
     Config::ScreenSwap = checked?1:0;
 
     // Swap between top and bottom screen when displaying one screen.
-    if (Config::ScreenSizing == screenSizing_TopOnly)
+    if (Config::ScreenSizing == Frontend::screenSizing_TopOnly)
     {
         // Bottom Screen.
-        Config::ScreenSizing = screenSizing_BotOnly;
-        actScreenSizing[screenSizing_TopOnly]->setChecked(false);
+        Config::ScreenSizing = Frontend::screenSizing_BotOnly;
+        actScreenSizing[Frontend::screenSizing_TopOnly]->setChecked(false);
         actScreenSizing[Config::ScreenSizing]->setChecked(true);
     }
-    else if (Config::ScreenSizing == screenSizing_BotOnly)
+    else if (Config::ScreenSizing == Frontend::screenSizing_BotOnly)
     {
         // Top Screen.
-        Config::ScreenSizing = screenSizing_TopOnly;
-        actScreenSizing[screenSizing_BotOnly]->setChecked(false);
+        Config::ScreenSizing = Frontend::screenSizing_TopOnly;
+        actScreenSizing[Frontend::screenSizing_BotOnly]->setChecked(false);
         actScreenSizing[Config::ScreenSizing]->setChecked(true);
     }
 
@@ -3268,7 +3093,8 @@ void MainWindow::onTitleUpdate(QString title)
     setWindowTitle(title);
 }
 
-void ToggleFullscreen(MainWindow* mainWindow) {
+void ToggleFullscreen(MainWindow* mainWindow)
+{
     if (!mainWindow->isFullScreen())
     {
         mainWindow->showFullScreen();
@@ -3285,6 +3111,21 @@ void ToggleFullscreen(MainWindow* mainWindow) {
 void MainWindow::onFullscreenToggled()
 {
     ToggleFullscreen(this);
+}
+
+void MainWindow::onScreenEmphasisToggled()
+{
+    int currentSizing = Config::ScreenSizing;
+    if (currentSizing == Frontend::screenSizing_EmphTop)
+    {
+        Config::ScreenSizing = Frontend::screenSizing_EmphBot;
+    }
+    else if (currentSizing == Frontend::screenSizing_EmphBot)
+    {
+        Config::ScreenSizing = Frontend::screenSizing_EmphTop;
+    }
+
+    emit screenLayoutChange();
 }
 
 void MainWindow::onEmuStart()
@@ -3357,14 +3198,14 @@ void emuStop()
     RunningSomething = false;
 
     emit emuThread->windowEmuStop();
-
-    OSD::AddMessage(0xFFC040, "Shutdown");
 }
 
 MelonApplication::MelonApplication(int& argc, char** argv)
     : QApplication(argc, argv)
 {
+#ifndef __APPLE__
     setWindowIcon(QIcon(":/melon-icon"));
+#endif
 }
 
 bool MelonApplication::event(QEvent *event)
@@ -3423,7 +3264,7 @@ int main(int argc, char** argv)
     }
 
     SDL_JoystickEventState(SDL_ENABLE);
-    
+
     SDL_InitSubSystem(SDL_INIT_VIDEO);
     SDL_EnableScreenSaver(); SDL_DisableScreenSaver();
 
@@ -3442,45 +3283,16 @@ int main(int argc, char** argv)
     SANITIZE(Config::GL_ScaleFactor, 1, 16);
     SANITIZE(Config::AudioInterp, 0, 3);
     SANITIZE(Config::AudioVolume, 0, 256);
-    SANITIZE(Config::MicInputType, 0, 3);
-    SANITIZE(Config::ScreenRotation, 0, 3);
+    SANITIZE(Config::MicInputType, 0, (int)micInputType_MAX);
+    SANITIZE(Config::ScreenRotation, 0, (int)Frontend::screenRot_MAX);
     SANITIZE(Config::ScreenGap, 0, 500);
-    SANITIZE(Config::ScreenLayout, 0, 3);
-    SANITIZE(Config::ScreenSizing, 0, (int)screenSizing_MAX);
-    SANITIZE(Config::ScreenAspectTop, 0, 4);
-    SANITIZE(Config::ScreenAspectBot, 0, 4);
+    SANITIZE(Config::ScreenLayout, 0, (int)Frontend::screenLayout_MAX);
+    SANITIZE(Config::ScreenSizing, 0, (int)Frontend::screenSizing_MAX);
+    SANITIZE(Config::ScreenAspectTop, 0, AspectRatiosNum);
+    SANITIZE(Config::ScreenAspectBot, 0, AspectRatiosNum);
 #undef SANITIZE
 
-    audioMuted = false;
-    audioSync = SDL_CreateCond();
-    audioSyncLock = SDL_CreateMutex();
-
-    audioFreq = 48000; // TODO: make configurable?
-    SDL_AudioSpec whatIwant, whatIget;
-    memset(&whatIwant, 0, sizeof(SDL_AudioSpec));
-    whatIwant.freq = audioFreq;
-    whatIwant.format = AUDIO_S16LSB;
-    whatIwant.channels = 2;
-    whatIwant.samples = 1024;
-    whatIwant.callback = audioCallback;
-    audioDevice = SDL_OpenAudioDevice(NULL, 0, &whatIwant, &whatIget, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-    if (!audioDevice)
-    {
-        printf("Audio init failed: %s\n", SDL_GetError());
-    }
-    else
-    {
-        audioFreq = whatIget.freq;
-        printf("Audio output frequency: %d Hz\n", audioFreq);
-        SDL_PauseAudioDevice(audioDevice, 1);
-    }
-
-    micDevice = 0;
-
-    memset(micExtBuffer, 0, sizeof(micExtBuffer));
-    micExtBufferWritePos = 0;
-    micWavBuffer = nullptr;
-
+    AudioInOut::Init();
     camStarted[0] = false;
     camStarted[1] = false;
     camManager[0] = new CameraManager(0, 640, 480, true);
@@ -3489,18 +3301,6 @@ int main(int argc, char** argv)
     camManager[1]->setXFlip(Config::Camera[1].XFlip);
 
     ROMManager::EnableCheats(Config::EnableCheats != 0);
-
-    Frontend::Init_Audio(audioFreq);
-
-    if (Config::MicInputType == 1)
-    {
-        Frontend::Mic_SetExternalBuffer(micExtBuffer, sizeof(micExtBuffer)/sizeof(s16));
-    }
-    else if (Config::MicInputType == 3)
-    {
-        micLoadWav(Config::MicWavPath);
-        Frontend::Mic_SetExternalBuffer(micWavBuffer, micWavLength);
-    }
 
     Input::JoystickID = Config::JoystickID;
     Input::OpenJoystick();
@@ -3513,7 +3313,7 @@ int main(int argc, char** argv)
     emuThread->start();
     emuThread->emuPause();
 
-    audioMute();
+    AudioInOut::AudioMute(mainWindow);
 
     QObject::connect(&melon, &QApplication::applicationStateChanged, mainWindow, &MainWindow::onAppStateChanged);
 
@@ -3546,14 +3346,7 @@ int main(int argc, char** argv)
 
     Input::CloseJoystick();
 
-    if (audioDevice) SDL_CloseAudioDevice(audioDevice);
-    micClose();
-
-    SDL_DestroyCond(audioSync);
-    SDL_DestroyMutex(audioSyncLock);
-
-    if (micWavBuffer) delete[] micWavBuffer;
-
+    AudioInOut::DeInit();
     delete camManager[0];
     delete camManager[1];
 

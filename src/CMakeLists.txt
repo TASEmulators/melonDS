@@ -38,6 +38,7 @@ add_library(core STATIC
     NDSCart.cpp
     Platform.h
     ROMList.h
+    ROMList.cpp
     FreeBIOS.h
     RTC.cpp
     Savestate.cpp
@@ -122,7 +123,7 @@ if (ENABLE_JIT)
     target_compile_definitions(core PUBLIC JIT_ENABLED)
 
     if (ENABLE_JIT_PROFILING)
-        include(cmake/FindVTune.cmake)
+        include(../cmake/FindVTune.cmake)
         add_definitions(-DJIT_PROFILING_ENABLED)
     endif()
 endif()
@@ -130,9 +131,13 @@ endif()
 if (WIN32)
     target_link_libraries(core PRIVATE ole32 comctl32 ws2_32)
 elseif(NOT APPLE)
-    target_link_libraries(core PRIVATE rt)
+    check_library_exists(rt shm_open "" NEED_LIBRT)
+    if (NEED_LIBRT)
+        target_link_libraries(core PRIVATE rt)
+    endif()
 endif()
 
 if (ENABLE_JIT_PROFILING)
-    target_link_libraries(core PRIVATE jitprofiling)
+    target_include_directories(core PRIVATE "${VTUNE_INCLUDE_DIR}")
+    target_link_libraries(core PRIVATE "${VTUNE_LIBRARY}")
 endif()

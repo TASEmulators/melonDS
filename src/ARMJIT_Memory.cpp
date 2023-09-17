@@ -48,6 +48,9 @@
 
 #include <stdlib.h>
 
+using Platform::Log;
+using Platform::LogLevel;
+
 /*
     We're handling fastmem here.
 
@@ -109,6 +112,7 @@ bool FaultHandler(FaultDescription& faultDesc);
 
 #if defined(__ANDROID__)
 #define ASHMEM_DEVICE "/dev/ashmem"
+Platform::DynamicLibrary* Libandroid = nullptr;
 #endif
 
 #if defined(__SWITCH__)
@@ -399,7 +403,7 @@ struct Mapping
                 if (status == memstate_MappedRW)
                 {
                     u32 segmentSize = offset - segmentOffset;
-                    printf("unmapping %x %x %x %x\n", Addr + segmentOffset, Num, segmentOffset + LocalOffset + OffsetsPerRegion[region], segmentSize);
+                    Log(LogLevel::Debug, "unmapping %x %x %x %x\n", Addr + segmentOffset, Num, segmentOffset + LocalOffset + OffsetsPerRegion[region], segmentSize);
                     bool success = UnmapFromRange(Addr + segmentOffset, Num, segmentOffset + LocalOffset + OffsetsPerRegion[region], segmentSize);
                     assert(success);
                 }
@@ -485,7 +489,7 @@ void RemapDTCM(u32 newBase, u32 newSize)
 
     u32 newEnd = newBase + newSize;
 
-    printf("remapping DTCM %x %x %x %x\n", newBase, newEnd, oldDTCMBase, oldDTCMEnd);
+    Log(LogLevel::Debug, "remapping DTCM %x %x %x %x\n", newBase, newEnd, oldDTCMBase, oldDTCMEnd);
     // unmap all regions containing the old or the current DTCM mapping
     for (int region = 0; region < memregions_Count; region++)
     {
@@ -499,7 +503,7 @@ void RemapDTCM(u32 newBase, u32 newSize)
             u32 start = mapping.Addr;
             u32 end = mapping.Addr + mapping.Size;
 
-            printf("unmapping %d %x %x %x %x\n", region, mapping.Addr, mapping.Size, mapping.Num, mapping.LocalOffset);
+            Log(LogLevel::Debug, "unmapping %d %x %x %x %x\n", region, mapping.Addr, mapping.Size, mapping.Num, mapping.LocalOffset);
 
             bool overlap = (oldDTCMSize > 0 && oldDTCMBase < end && oldDTCMEnd > start)
                 || (newSize > 0 && newBase < end && newEnd > start);
@@ -548,7 +552,7 @@ void RemapNWRAM(int num)
 
 void RemapSWRAM()
 {
-    printf("remapping SWRAM\n");
+    Log(LogLevel::Debug, "remapping SWRAM\n");
     for (int i = 0; i < Mappings[memregion_WRAM7].Length;)
     {
         Mapping& mapping = Mappings[memregion_WRAM7][i];
@@ -750,14 +754,13 @@ void Init()
     MemoryBase = MemoryBase + AddrSpaceSize*2;
 
 #if defined(__ANDROID__)
-    static void* libandroid = dlopen("libandroid.so", RTLD_LAZY | RTLD_LOCAL);
+    Libandroid = Platform::DynamicLibrary_Load("libandroid.so");
     using type_ASharedMemory_create = int(*)(const char* name, size_t size);
-    static void* symbol = dlsym(libandroid, "ASharedMemory_create");
-    static auto shared_memory_create = reinterpret_cast<type_ASharedMemory_create>(symbol);
+    auto ASharedMemory_create = reinterpret_cast<type_ASharedMemory_create>(Platform::DynamicLibrary_LoadFunction(Libandroid, "ASharedMemory_create"));
 
-    if (shared_memory_create)
+    if (ASharedMemory_create)
     {
-        MemoryFile = shared_memory_create("melondsfastmem", MemoryTotalSize);
+        MemoryFile = ASharedMemory_create("melondsfastmem", MemoryTotalSize);
     }
     else
     {
@@ -772,13 +775,13 @@ void Init()
     MemoryFile = shm_open(fastmemPidName, O_RDWR | O_CREAT | O_EXCL, 0600);
     if (MemoryFile == -1)
     {
-        printf("Failed to open memory using shm_open!");
+        Log(LogLevel::Error, "Failed to open memory using shm_open! (%s)", strerror(errno));
     }
     shm_unlink(fastmemPidName);
 #endif
     if (ftruncate(MemoryFile, MemoryTotalSize) < 0)
     {
-        printf("Failed to allocate memory using ftruncate!");
+        Log(LogLevel::Error, "Failed to allocate memory using ftruncate! (%s)", strerror(errno));
     }
 
     struct sigaction sa;
@@ -827,6 +830,15 @@ void DeInit()
 
     munmap(MemoryBase, MemoryTotalSize);
     close(MemoryFile);
+
+#if defined(__ANDROID__)
+    if (Libandroid)
+    {
+        Platform::DynamicLibrary_Unload(Libandroid);
+        Libandroid = nullptr;
+    }
+#endif
+
 #endif
 }
 
@@ -845,7 +857,7 @@ void Reset()
         assert(MappingStatus7[i] == memstate_Unmapped);
     }
 
-    printf("done resetting jit mem\n");
+    Log(LogLevel::Debug, "done resetting jit mem\n");
 }
 
 bool IsFastmemCompatible(int region)

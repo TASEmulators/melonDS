@@ -6,11 +6,10 @@
 <a href="https://www.gnu.org/licenses/gpl-3.0" alt="License: GPLv3"><img src="https://img.shields.io/badge/License-GPL%20v3-%23ff554d.svg"></a>
 <a href="https://kiwiirc.com/client/irc.badnik.net/?nick=IRC-Source_?#melonds" alt="IRC channel: #melonds"><img src="https://img.shields.io/badge/IRC%20chat-%23melonds-%23dd2e44.svg"></a>
 <br>
-<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Windows+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/melonDS-emu/melonDS/CMake%20Build%20(Windows%20x86-64)?label=Windows%20x86-64&logo=GitHub"></img></a>
-<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/melonDS-emu/melonDS/CMake%20Build%20(Ubuntu%20x86-64)?label=Linux%20x86-64&logo=GitHub"></img></a>
-<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+aarch64%29%22+event%3Apush"><img src="https://img.shields.io/github/workflow/status/melonDS-emu/melonDS/CMake%20Build%20(Ubuntu%20aarch64)?label=Linux%20ARM64&logo=GitHub"></img></a>
-<a href="https://dev.azure.com/melonDS/melonDS/_build?definitionId=1&repositoryFilter=1&branchFilter=2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2%2C2"><img src="https://img.shields.io/azure-devops/build/melonDS/7c9c08a1-669f-42a4-bef4-a6c74eadf723/1/master?label=macOS%20x86-64&logo=Azure%20Pipelines"></img></a>
-<a href="https://dev.azure.com/melonDS/melonDS/_build?definitionId=2&_a=summary&repositoryFilter=1&branchFilter=2%2C2%2C2%2C2%2C2"><img src="https://img.shields.io/azure-devops/build/melonDS/7c9c08a1-669f-42a4-bef4-a6c74eadf723/2/master?label=macOS%20ARM64&logo=Azure%20Pipelines"></img></a>
+<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Windows+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/actions/workflow/status/melonDS-emu/melonDS/build-windows.yml?label=Windows%20x86-64&logo=GitHub&branch=master"></img></a>
+<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+x86-64%29%22+event%3Apush"><img src="https://img.shields.io/github/actions/workflow/status/melonDS-emu/melonDS/build-ubuntu.yml?label=Linux%20x86-64&logo=GitHub"></img></a>
+<a href="https://github.com/melonDS-emu/melonDS/actions?query=workflow%3A%22CMake+Build+%28Ubuntu+aarch64%29%22+event%3Apush"><img src="https://img.shields.io/github/actions/workflow/status/melonDS-emu/melonDS/build-ubuntu-aarch64.yml?label=Linux%20ARM64&logo=GitHub"></img></a>
+<a href="https://github.com/melonDS-emu/melonDS/actions/workflows/build-macos-universal.yml?query=event%3Apush"><img src="https://img.shields.io/github/actions/workflow/status/melonDS-emu/melonDS/build-macos-universal.yml?label=macOS%20Universal&logo=GitHub"></img></a>
 </p>
 DS emulator, sorta
 
@@ -36,9 +35,9 @@ As for the rest, the interface should be pretty straightforward. If you have a q
 
 ### Linux
 1. Install dependencies:
-   * Ubuntu 22.04: `sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qtbase5-dev qtbase5-private-dev qtmultimedia5-dev libslirp-dev libarchive-dev`
-   * Older Ubuntu: `sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qt5-default qtbase5-private-dev qtmultimedia5-dev libslirp-dev libarchive-dev`
-   * Arch Linux: `sudo pacman -S base-devel cmake extra-cmake-modules git libpcap sdl2 qt5-base qt5-multimedia libslirp libarchive`
+   * Ubuntu 22.04: `sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qtbase5-dev qtbase5-private-dev qtmultimedia5-dev libslirp-dev libarchive-dev libzstd-dev`
+   * Older Ubuntu: `sudo apt install cmake extra-cmake-modules libcurl4-gnutls-dev libpcap0.8-dev libsdl2-dev qt5-default qtbase5-private-dev qtmultimedia5-dev libslirp-dev libarchive-dev libzstd-dev`
+   * Arch Linux: `sudo pacman -S base-devel cmake extra-cmake-modules git libpcap sdl2 qt5-base qt5-multimedia libslirp libarchive zstd`
 3. Download the melonDS repository and prepare:
    ```bash
    git clone https://github.com/melonDS-emu/melonDS
@@ -65,7 +64,7 @@ As for the rest, the interface should be pretty straightforward. If you have a q
    cd melonDS
    ```
 #### Dynamic builds (with DLLs)
-5. Install dependencies: `pacman -S mingw-w64-x86_64-{cmake,SDL2,toolchain,qt5-base,qt5-svg,qt5-multimedia,libslirp,libarchive}`
+5. Install dependencies: `pacman -S mingw-w64-x86_64-{cmake,SDL2,toolchain,qt5-base,qt5-svg,qt5-multimedia,qt5-tools,libslirp,libarchive,zstd}`
 6. Compile:
    ```bash
    cmake -B build
@@ -76,7 +75,7 @@ As for the rest, the interface should be pretty straightforward. If you have a q
 If everything went well, melonDS and the libraries it needs should now be in the `dist` folder.
 
 #### Static builds (without DLLs, standalone executable)
-5. Install dependencies: `pacman -S mingw-w64-x86_64-{cmake,SDL2,toolchain,qt5-static,libslirp,libarchive}`
+5. Install dependencies: `pacman -S mingw-w64-x86_64-{cmake,SDL2,toolchain,qt5-static,libslirp,libarchive,zstd}`
 6. Compile:
    ```bash
    cmake -B build -DBUILD_STATIC=ON -DCMAKE_PREFIX_PATH=/mingw64/qt5-static
@@ -86,7 +85,7 @@ If everything went well, melonDS should now be in the `build` folder.
 
 ### macOS
 1. Install the [Homebrew Package Manager](https://brew.sh)
-2. Install dependencies: `brew install git pkg-config cmake sdl2 qt@6 libslirp libarchive`
+2. Install dependencies: `brew install git pkg-config cmake sdl2 qt@6 libslirp libarchive zstd`
 3. Download the melonDS repository and prepare:
    ```zsh
    git clone https://github.com/melonDS-emu/melonDS

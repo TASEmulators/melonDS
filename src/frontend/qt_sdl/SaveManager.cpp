@@ -22,8 +22,9 @@
 #include "SaveManager.h"
 #include "Platform.h"
 
+using namespace Platform;
 
-SaveManager::SaveManager(std::string path) : QThread()
+SaveManager::SaveManager(const std::string& path) : QThread()
 {
     SecondaryBuffer = nullptr;
     SecondaryBufferLength = 0;
@@ -69,17 +70,17 @@ std::string SaveManager::GetPath()
     return Path;
 }
 
-void SaveManager::SetPath(std::string path, bool reload)
+void SaveManager::SetPath(const std::string& path, bool reload)
 {
     Path = path;
 
     if (reload)
     {
-        FILE* f = Platform::OpenFile(Path, "rb", true);
+        FileHandle* f = Platform::OpenFile(Path, FileMode::Read);
         if (f)
         {
-            fread(Buffer, 1, Length, f);
-            fclose(f);
+            FileRead(Buffer, 1, Length, f);
+            CloseFile(f);
         }
     }
     else
@@ -122,7 +123,7 @@ void SaveManager::CheckFlush()
 
     SecondaryBufferLock->lock();
 
-    printf("SaveManager: Flush requested\n");
+    Log(LogLevel::Info, "SaveManager: Flush requested\n");
 
     if (SecondaryBufferLength != Length)
     {
@@ -175,12 +176,12 @@ void SaveManager::FlushSecondaryBuffer(u8* dst, u32 dstLength)
     }
     else
     {
-        FILE* f = Platform::OpenFile(Path, "wb");
+        FileHandle* f = Platform::OpenFile(Path, FileMode::Write);
         if (f)
         {
-            printf("SaveManager: Written\n");
-            fwrite(SecondaryBuffer, SecondaryBufferLength, 1, f);
-            fclose(f);
+            Log(LogLevel::Info, "SaveManager: Written\n");
+            FileWrite(SecondaryBuffer, SecondaryBufferLength, 1, f);
+            CloseFile(f);
         }
     }
     PreviousFlushVersion = FlushVersion;

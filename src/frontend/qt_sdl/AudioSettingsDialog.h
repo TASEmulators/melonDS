@@ -30,11 +30,11 @@ class AudioSettingsDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit AudioSettingsDialog(QWidget* parent);
+    explicit AudioSettingsDialog(QWidget* parent, bool emuActive);
     ~AudioSettingsDialog();
 
     static AudioSettingsDialog* currentDlg;
-    static AudioSettingsDialog* openDlg(QWidget* parent)
+    static AudioSettingsDialog* openDlg(QWidget* parent, bool emuActive)
     {
         if (currentDlg)
         {
@@ -42,7 +42,7 @@ public:
             return currentDlg;
         }
 
-        currentDlg = new AudioSettingsDialog(parent);
+        currentDlg = new AudioSettingsDialog(parent, emuActive);
         currentDlg->show();
         return currentDlg;
     }
@@ -50,6 +50,9 @@ public:
     {
         currentDlg = nullptr;
     }
+
+    void onSyncVolumeLevel();
+    void onConsoleReset();
 
 signals:
     void updateAudioSettings();
@@ -59,8 +62,9 @@ private slots:
     void on_AudioSettingsDialog_rejected();
 
     void on_cbInterpolation_currentIndexChanged(int idx);
-    void on_cbBitrate_currentIndexChanged(int idx);
+    void on_cbBitDepth_currentIndexChanged(int idx);
     void on_slVolume_valueChanged(int val);
+    void on_chkSyncDSiVolume_clicked(bool checked);
     void onChangeMicMode(int mode);
     void on_btnMicWavBrowse_clicked();
 
@@ -68,8 +72,9 @@ private:
     Ui::AudioSettingsDialog* ui;
 
     int oldInterp;
-    int oldBitrate;
+    int oldBitDepth;
     int oldVolume;
+    bool oldDSiSync;
     QButtonGroup* grpMicMode;
 };
 

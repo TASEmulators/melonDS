@@ -21,15 +21,14 @@
 
 #include <string>
 #include <list>
-
+#include <vector>
 #include "types.h"
 
 struct ARCode
 {
     std::string Name;
     bool Enabled;
-    u32 CodeLen;
-    u32 Code[2*64];
+    std::vector<u32> Code;
 };
 
 typedef std::list<ARCode> ARCodeList;
@@ -46,7 +45,7 @@ typedef std::list<ARCodeCat> ARCodeCatList;
 class ARCodeFile
 {
 public:
-    ARCodeFile(std::string filename);
+    ARCodeFile(const std::string& filename);
     ~ARCodeFile();
 
     bool Error;

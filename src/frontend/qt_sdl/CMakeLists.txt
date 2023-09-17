@@ -14,11 +14,11 @@ set(SOURCES_QT_SDL
     InputConfig/MapButton.h
     InputConfig/resources/ds.qrc
     VideoSettingsDialog.cpp
-	CameraSettingsDialog.cpp
+    CameraSettingsDialog.cpp
     AudioSettingsDialog.cpp
     FirmwareSettingsDialog.cpp
     PathSettingsDialog.cpp
-	MPSettingsDialog.cpp
+    MPSettingsDialog.cpp
     WifiSettingsDialog.cpp
     InterfaceSettingsDialog.cpp
     ROMInfoDialog.cpp
@@ -27,15 +27,16 @@ set(SOURCES_QT_SDL
     Input.cpp
     LAN_PCap.cpp
     LAN_Socket.cpp
-	LocalMP.cpp
+    LocalMP.cpp
     OSD.cpp
     OSD_shaders.h
     font.h
     Platform.cpp
     QPathInput.h
     ROMManager.cpp
-	SaveManager.cpp
-	CameraManager.cpp
+    SaveManager.cpp
+    CameraManager.cpp
+    AudioInOut.cpp
     
     ArchiveUtil.h
     ArchiveUtil.cpp
@@ -82,6 +83,7 @@ endif()
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 pkg_check_modules(Slirp REQUIRED IMPORTED_TARGET slirp)
 pkg_check_modules(LibArchive REQUIRED IMPORTED_TARGET libarchive)
+pkg_check_modules(Zstd REQUIRED IMPORTED_TARGET libzstd)
 
 fix_interface_includes(PkgConfig::SDL2 PkgConfig::Slirp PkgConfig::LibArchive)
 
@@ -106,20 +108,30 @@ elseif (APPLE)
         ../duckstation/gl/context_agl.mm
     )
 else()
-    # we only need ECM for Wayland
-    # so we only require it from here
-    find_package(ECM REQUIRED NO_MODULE)
-    list(APPEND CMAKE_MODULE_PATH "${ECM_MODULE_PATH}")
-
     find_package(X11 REQUIRED)
     find_package(EGL REQUIRED)
-    find_package(Wayland REQUIRED Client)
+
+    option(ENABLE_WAYLAND "Enable Wayland support" ON)
+
+    if (ENABLE_WAYLAND)
+        # we only need ECM for Wayland
+        # so we only require it from here
+        find_package(ECM REQUIRED NO_MODULE)
+        list(APPEND CMAKE_MODULE_PATH "${ECM_MODULE_PATH}")
+
+        find_package(Wayland REQUIRED Client)
+
+        target_compile_definitions(melonDS PRIVATE WAYLAND_ENABLED)
+
+        target_sources(melonDS PRIVATE
+            ../duckstation/gl/context_egl_wayland.cpp
+        )
+    endif()
 
     target_sources(melonDS PRIVATE
         ../duckstation/gl/context_egl.cpp
         ../duckstation/gl/context_egl_x11.cpp
         ../duckstation/gl/context_glx.cpp
-        ../duckstation/gl/context_egl_wayland.cpp
         ../duckstation/gl/x11_window.cpp
 
         ../glad/glad_egl.c
@@ -144,7 +156,7 @@ else()
     target_include_directories(melonDS PUBLIC ${Qt5Gui_PRIVATE_INCLUDE_DIRS})
 endif()
 target_link_libraries(melonDS PRIVATE core)
-target_link_libraries(melonDS PRIVATE PkgConfig::SDL2 PkgConfig::Slirp PkgConfig::LibArchive)
+target_link_libraries(melonDS PRIVATE PkgConfig::SDL2 PkgConfig::Slirp PkgConfig::LibArchive PkgConfig::Zstd)
 target_link_libraries(melonDS PRIVATE ${QT_LINK_LIBS} ${CMAKE_DL_LIBS})
 
 if (UNIX)
@@ -210,4 +222,10 @@ if (UNIX AND NOT APPLE)
 
     install(FILES ${CMAKE_SOURCE_DIR}/res/net.kuribo64.melonDS.desktop DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications)
     install(TARGETS melonDS BUNDLE DESTINATION ${CMAKE_BINARY_DIR} RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+
+    if (NOT USE_QT6)
+        set_target_properties(melonDS PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION OFF
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
+    endif()
 endif()

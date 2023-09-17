@@ -19,8 +19,6 @@
 #ifndef DSI_SD_H
 #define DSI_SD_H
 
-#include <sstream>
-
 #include <cstring>
 #include "FIFO.h"
 #include "FATStorage.h"
@@ -127,8 +125,8 @@ protected:
 class DSi_MMCStorage : public DSi_SDDevice
 {
 public:
-    DSi_MMCStorage(DSi_SDHost* host, bool internal, std::string filename);
-    DSi_MMCStorage(DSi_SDHost* host, bool internal, std::string filename, u64 size, bool readonly, std::string sourcedir);
+    DSi_MMCStorage(DSi_SDHost* host, bool internal, const std::string& filename);
+    DSi_MMCStorage(DSi_SDHost* host, bool internal, const std::string& filename, u64 size, bool readonly, const std::string& sourcedir);
     ~DSi_MMCStorage();
 
     void Reset();
@@ -144,8 +142,7 @@ public:
 
 private:
     bool Internal;
-    //FILE* File;
-    std::stringstream* File;
+    Platform::FileHandle* File;
     FATStorage* SD;
 
     u8 CID[16];

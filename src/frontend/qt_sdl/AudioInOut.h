@@ -16,13 +16,29 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#ifndef CRC32_H
-#define CRC32_H
-
-#include <array>
+#ifndef AUDIO_INOUT_H
+#define AUDIO_INOUT_H
 
 #include "types.h"
 
-u32 CRC32(const u8* data, int len, u32 start=0);
+#include <QMainWindow>
 
-#endif // CRC32_H
+namespace AudioInOut
+{
+
+void Init();
+void DeInit();
+
+void MicProcess();
+void AudioMute(QMainWindow* mainWindow);
+
+void AudioSync();
+
+void UpdateSettings();
+
+void Enable();
+void Disable();
+
+}
+
+#endif

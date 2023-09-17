@@ -21,7 +21,9 @@
 
 #include <string>
 #include <utility>
+#include <fstream>
 
+#include <zstd.h>
 #ifdef ARCHIVE_SUPPORT_ENABLED
 #include "ArchiveUtil.h"
 #endif
@@ -34,6 +36,7 @@
 #include "SPI.h"
 #include "DSi_I2C.h"
 
+using namespace Platform;
 
 namespace ROMManager
 {
@@ -51,6 +54,7 @@ std::string BaseGBAAssetName = "";
 SaveManager* NDSSave = nullptr;
 SaveManager* GBASave = nullptr;
 
+std::unique_ptr<Savestate> BackupState = nullptr;
 bool SavestateLoaded = false;
 std::string PreviousSaveFile = "";
 
@@ -58,7 +62,7 @@ ARCodeFile* CheatFile = nullptr;
 bool CheatsOn = false;
 
 
-int LastSep(std::string path)
+int LastSep(const std::string& path)
 {
     int i = path.length() - 1;
     while (i >= 0)
@@ -72,168 +76,175 @@ int LastSep(std::string path)
     return -1;
 }
 
-std::string GetAssetPath(bool gba, std::string configpath, std::string ext, std::string file="")
+std::string GetAssetPath(bool gba, const std::string& configpath, const std::string& ext, const std::string& file = "")
 {
+    std::string result;
+
     if (configpath.empty())
-        configpath = gba ? BaseGBAROMDir : BaseROMDir;
+        result = gba ? BaseGBAROMDir : BaseROMDir;
+    else
+        result = configpath;
 
-    if (file.empty())
-    {
-        file = gba ? BaseGBAAssetName : BaseAssetName;
-        if (file.empty())
-            file = "firmware";
-    }
-
+    // cut off trailing slashes
     for (;;)
     {
-        int i = configpath.length() - 1;
+        int i = result.length() - 1;
         if (i < 0) break;
-        if (configpath[i] == '/' || configpath[i] == '\\')
-            configpath = configpath.substr(0, i);
+        if (result[i] == '/' || result[i] == '\\')
+            result.resize(i);
         else
             break;
     }
 
-    if (!configpath.empty())
-        configpath += "/";
+    if (!result.empty())
+        result += '/';
 
-    return configpath + file + ext;
+    if (file.empty())
+    {
+        std::string& baseName = gba ? BaseGBAAssetName : BaseAssetName;
+        if (baseName.empty())
+            result += "firmware";
+        else
+            result += baseName;
+    }
+    else
+    {
+        result += file;
+    }
+
+    result += ext;
+
+    return result;
 }
 
 
 QString VerifyDSBIOS()
 {
-    FILE* f;
+    FileHandle* f;
     long len;
 
-    f = Platform::OpenLocalFile(Config::BIOS9Path, "rb");
+    f = Platform::OpenLocalFile(Config::BIOS9Path, FileMode::Read);
     if (!f) return "DS ARM9 BIOS was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len != 0x1000)
     {
-        fclose(f);
+        CloseFile(f);
         return "DS ARM9 BIOS is not a valid BIOS dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
-    f = Platform::OpenLocalFile(Config::BIOS7Path, "rb");
+    f = Platform::OpenLocalFile(Config::BIOS7Path, FileMode::Read);
     if (!f) return "DS ARM7 BIOS was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len != 0x4000)
     {
-        fclose(f);
+        CloseFile(f);
         return "DS ARM7 BIOS is not a valid BIOS dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
     return "";
 }
 
 QString VerifyDSiBIOS()
 {
-    FILE* f;
+    FileHandle* f;
     long len;
 
     // TODO: check the first 32 bytes
 
-    f = Platform::OpenLocalFile(Config::DSiBIOS9Path, "rb");
+    f = Platform::OpenLocalFile(Config::DSiBIOS9Path, FileMode::Read);
     if (!f) return "DSi ARM9 BIOS was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len != 0x10000)
     {
-        fclose(f);
+        CloseFile(f);
         return "DSi ARM9 BIOS is not a valid BIOS dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
-    f = Platform::OpenLocalFile(Config::DSiBIOS7Path, "rb");
+    f = Platform::OpenLocalFile(Config::DSiBIOS7Path, FileMode::Read);
     if (!f) return "DSi ARM7 BIOS was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len != 0x10000)
     {
-        fclose(f);
+        CloseFile(f);
         return "DSi ARM7 BIOS is not a valid BIOS dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
     return "";
 }
 
 QString VerifyDSFirmware()
 {
-    FILE* f;
+    FileHandle* f;
     long len;
 
-    f = Platform::OpenLocalFile(Config::FirmwarePath, "rb");
+    f = Platform::OpenLocalFile(Config::FirmwarePath, FileMode::Read);
     if (!f) return "DS firmware was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len == 0x20000)
     {
         // 128KB firmware, not bootable
-        fclose(f);
+        CloseFile(f);
         // TODO report it somehow? detect in core?
         return "";
     }
     else if (len != 0x40000 && len != 0x80000)
     {
-        fclose(f);
+        CloseFile(f);
         return "DS firmware is not a valid firmware dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
     return "";
 }
 
 QString VerifyDSiFirmware()
 {
-    FILE* f;
+    FileHandle* f;
     long len;
 
-    f = Platform::OpenLocalFile(Config::DSiFirmwarePath, "rb");
+    f = Platform::OpenLocalFile(Config::DSiFirmwarePath, FileMode::Read);
     if (!f) return "DSi firmware was not found or could not be accessed. Check your emu settings.";
 
-    fseek(f, 0, SEEK_END);
-    len = ftell(f);
+    len = FileLength(f);
     if (len != 0x20000)
     {
         // not 128KB
         // TODO: check whether those work
-        fclose(f);
+        CloseFile(f);
         return "DSi firmware is not a valid firmware dump.";
     }
 
-    fclose(f);
+    CloseFile(f);
 
     return "";
 }
 
 QString VerifyDSiNAND()
 {
-    FILE* f;
+    FileHandle* f;
     long len;
 
-    f = Platform::OpenLocalFile(Config::DSiNANDPath, "r+b");
+    f = Platform::OpenLocalFile(Config::DSiNANDPath, FileMode::ReadWriteExisting);
     if (!f) return "DSi NAND was not found or could not be accessed. Check your emu settings.";
 
     // TODO: some basic checks
     // check that it has the nocash footer, and all
 
-    fclose(f);
+    CloseFile(f);
 
     return "";
 }
@@ -288,37 +299,64 @@ bool SavestateExists(int slot)
     return Platform::FileExists(ssfile);
 }
 
-bool LoadState(std::string filename)
+bool LoadState(const std::string& filename)
 {
-    // backup
-    Savestate* backup = new Savestate("timewarp.mln", true);
-    NDS::DoSavestate(backup);
-    delete backup;
-
-    bool failed = false;
-
-    Savestate* state = new Savestate(filename, false);
-    if (state->Error)
-    {
-        delete state;
-
-        // current state might be crapoed, so restore from sane backup
-        state = new Savestate("timewarp.mln", false);
-        failed = true;
+    FILE* file = fopen(filename.c_str(), "rb");
+    if (file == nullptr)
+    { // If we couldn't open the state file...
+        Platform::Log(Platform::LogLevel::Error, "Failed to open state file \"%s\"\n", filename.c_str());
+        return false;
     }
 
-    bool res = NDS::DoSavestate(state);
-    delete state;
-
-    if (!res)
-    {
-        failed = true;
-        state = new Savestate("timewarp.mln", false);
-        NDS::DoSavestate(state);
-        delete state;
+    std::unique_ptr<Savestate> backup = std::make_unique<Savestate>(Savestate::DEFAULT_SIZE);
+    if (backup->Error)
+    { // If we couldn't allocate memory for the backup...
+        Platform::Log(Platform::LogLevel::Error, "Failed to allocate memory for state backup\n");
+        fclose(file);
+        return false;
     }
 
-    if (failed) return false;
+    if (!NDS::DoSavestate(backup.get()) || backup->Error)
+    { // Back up the emulator's state. If that failed...
+        Platform::Log(Platform::LogLevel::Error, "Failed to back up state, aborting load (from \"%s\")\n", filename.c_str());
+        fclose(file);
+        return false;
+    }
+    // We'll store the backup once we're sure that the state was loaded.
+    // Now that we know the file and backup are both good, let's load the new state.
+
+    // Get the size of the file that we opened
+    if (fseek(file, 0, SEEK_END) != 0)
+    {
+        Platform::Log(Platform::LogLevel::Error, "Failed to seek to end of state file \"%s\"\n", filename.c_str());
+        fclose(file);
+        return false;
+    }
+    size_t size = ftell(file);
+    rewind(file); // reset the filebuf's position
+
+    // Allocate exactly as much memory as we need for the savestate
+    std::vector<u8> buffer(size);
+    if (fread(buffer.data(), size, 1, file) == 0)
+    { // Read the state file into the buffer. If that failed...
+        Platform::Log(Platform::LogLevel::Error, "Failed to read %u-byte state file \"%s\"\n", size, filename.c_str());
+        fclose(file);
+        return false;
+    }
+    fclose(file); // done with the file now
+
+    // Get ready to load the state from the buffer into the emulator
+    std::unique_ptr<Savestate> state = std::make_unique<Savestate>(buffer.data(), size, false);
+
+    if (!NDS::DoSavestate(state.get()) || state->Error)
+    { // If we couldn't load the savestate from the buffer...
+        Platform::Log(Platform::LogLevel::Error, "Failed to load state file \"%s\" into emulator\n", filename.c_str());
+        return false;
+    }
+
+    // The backup was made and the state was loaded, so we can store the backup now.
+    BackupState = std::move(backup); // This will clean up any existing backup
+    assert(backup == nullptr);
 
     if (Config::SavestateRelocSRAM && NDSSave)
     {
@@ -335,17 +373,43 @@ bool LoadState(std::string filename)
     return true;
 }
 
-bool SaveState(std::string filename)
+bool SaveState(const std::string& filename)
 {
-    Savestate* state = new Savestate(filename, true);
-    if (state->Error)
-    {
-        delete state;
+    FILE* file = fopen(filename.c_str(), "wb");
+
+    if (file == nullptr)
+    { // If the file couldn't be opened...
         return false;
     }
 
-    NDS::DoSavestate(state);
-    delete state;
+    Savestate state;
+    if (state.Error)
+    { // If there was an error creating the state (and allocating its memory)...
+        fclose(file);
+        return false;
+    }
+
+    // Write the savestate to the in-memory buffer
+    NDS::DoSavestate(&state);
+
+    if (state.Error)
+    {
+        fclose(file);
+        return false;
+    }
+
+    if (fwrite(state.Buffer(), state.Length(), 1, file) == 0)
+    { // Write the Savestate buffer to the file. If that fails...
+        Platform::Log(Platform::Error,
+            "Failed to write %d-byte savestate to %s\n",
+            state.Length(),
+            filename.c_str()
+        );
+        fclose(file);
+        return false;
+    }
+
+    fclose(file);
 
     if (Config::SavestateRelocSRAM && NDSSave)
     {
@@ -360,14 +424,14 @@ bool SaveState(std::string filename)
 
 void UndoStateLoad()
 {
-    if (!SavestateLoaded) return;
+    if (!SavestateLoaded || !BackupState) return;
 
+    // Rewind the backup state and put it in load mode
+    BackupState->Rewind(false);
     // pray that this works
     // what do we do if it doesn't???
     // but it should work.
-    Savestate* backup = new Savestate("timewarp.mln", false);
-    NDS::DoSavestate(backup);
-    delete backup;
+    NDS::DoSavestate(BackupState.get());
 
     if (NDSSave && (!PreviousSaveFile.empty()))
     {
@@ -382,6 +446,7 @@ void UnloadCheats()
     {
         delete CheatFile;
         CheatFile = nullptr;
+        AREngine::SetCodeFile(nullptr);
     }
 }
 
@@ -478,6 +543,100 @@ bool LoadBIOS()
     return true;
 }
 
+u32 DecompressROM(const u8* inContent, const u32 inSize, u8** outContent)
+{
+    u64 realSize = ZSTD_getFrameContentSize(inContent, inSize);
+    const u32 maxSize = 0x40000000;
+
+    if (realSize == ZSTD_CONTENTSIZE_ERROR || (realSize > maxSize && realSize != ZSTD_CONTENTSIZE_UNKNOWN))
+    {
+        return 0;
+    }
+
+    if (realSize != ZSTD_CONTENTSIZE_UNKNOWN)
+    {
+        u8* realContent = new u8[realSize];
+        u64 decompressed = ZSTD_decompress(realContent, realSize, inContent, inSize);
+
+        if (ZSTD_isError(decompressed))
+        {
+            delete[] realContent;
+            return 0;
+        }
+
+        *outContent = realContent;
+        return realSize;
+    }
+    else
+    {
+        ZSTD_DStream* dStream = ZSTD_createDStream();
+        ZSTD_initDStream(dStream);
+
+        ZSTD_inBuffer inBuf = {
+            .src = inContent,
+            .size = inSize,
+            .pos = 0
+        };
+
+        const u32 startSize = 1024 * 1024 * 16;
+        u8* partialOutContent = (u8*) malloc(startSize);
+
+        ZSTD_outBuffer outBuf = {
+                .dst = partialOutContent,
+                .size = startSize,
+                .pos = 0
+        };
+
+        size_t result;
+
+        do
+        {
+            result = ZSTD_decompressStream(dStream, &outBuf, &inBuf);
+
+            if (ZSTD_isError(result))
+            {
+                ZSTD_freeDStream(dStream);
+                free(outBuf.dst);
+                return 0;
+            }
+
+            // if result == 0 and not inBuf.pos < inBuf.size, go again to let zstd flush everything.
+            if (result == 0)
+                continue;
+
+            if (outBuf.pos == outBuf.size)
+            {
+                outBuf.size *= 2;
+
+                if (outBuf.size > maxSize)
+                {
+                    ZSTD_freeDStream(dStream);
+                    free(outBuf.dst);
+                    return 0;
+                }
+
+                outBuf.dst = realloc(outBuf.dst, outBuf.size);
+            }
+        } while (inBuf.pos < inBuf.size);
+
+        ZSTD_freeDStream(dStream);
+        *outContent = new u8[outBuf.pos];
+        memcpy(*outContent, outBuf.dst, outBuf.pos);
+
+        ZSTD_freeDStream(dStream);
+        free(outBuf.dst);
+
+        return outBuf.size;
+    }
+}
+
+void ClearBackupState()
+{
+    if (BackupState != nullptr)
+    {
+        BackupState = nullptr;
+    }
+}
 
 bool LoadROM(QStringList filepath, bool reset)
 {
@@ -495,33 +654,52 @@ bool LoadROM(QStringList filepath, bool reset)
         // regular file
 
         std::string filename = filepath.at(0).toStdString();
-        FILE* f = Platform::OpenFile(filename, "rb", true);
+        Platform::FileHandle* f = Platform::OpenFile(filename, FileMode::Read);
         if (!f) return false;
 
-        fseek(f, 0, SEEK_END);
-        long len = ftell(f);
+        long len = Platform::FileLength(f);
         if (len > 0x40000000)
         {
-            fclose(f);
+            Platform::CloseFile(f);
             delete[] filedata;
             return false;
         }
 
-        fseek(f, 0, SEEK_SET);
+        Platform::FileRewind(f);
         filedata = new u8[len];
-        size_t nread = fread(filedata, (size_t)len, 1, f);
+        size_t nread = Platform::FileRead(filedata, (size_t)len, 1, f);
         if (nread != 1)
         {
-            fclose(f);
+            Platform::CloseFile(f);
             delete[] filedata;
             return false;
         }
 
-        fclose(f);
+        Platform::CloseFile(f);
         filelen = (u32)len;
 
+        if (filename.length() > 4 && filename.substr(filename.length() - 4) == ".zst")
+        {
+            u8* outContent = nullptr;
+            u32 decompressed = DecompressROM(filedata, len, &outContent);
+
+            if (decompressed > 0)
+            {
+                delete[] filedata;
+                filedata = outContent;
+                filelen = decompressed;
+                filename = filename.substr(0, filename.length() - 4);
+            }
+            else
+            {
+                delete[] filedata;
+                return false;
+            }
+        }
+
         int pos = LastSep(filename);
-        basepath = filename.substr(0, pos);
+        if(pos != -1)
+            basepath = filename.substr(0, pos);
         romname = filename.substr(pos+1);
     }
 #ifdef ARCHIVE_SUPPORT_ENABLED
@@ -529,14 +707,14 @@ bool LoadROM(QStringList filepath, bool reset)
     {
         // file inside archive
 
-            s32 lenread = Archive::ExtractFileFromArchive(filepath.at(0), filepath.at(1), &filedata, &filelen);
-            if (lenread < 0) return false;
-            if (!filedata) return false;
-            if (lenread != filelen)
-            {
-                delete[] filedata;
-                return false;
-            }
+        s32 lenread = Archive::ExtractFileFromArchive(filepath.at(0), filepath.at(1), &filedata, &filelen);
+        if (lenread < 0) return false;
+        if (!filedata) return false;
+        if (lenread != filelen)
+        {
+            delete[] filedata;
+            return false;
+        }
 
         std::string std_archivepath = filepath.at(0).toStdString();
         basepath = std_archivepath.substr(0, LastSep(std_archivepath));
@@ -570,17 +748,16 @@ bool LoadROM(QStringList filepath, bool reset)
     std::string origsav = savname;
     savname += Platform::InstanceFileSuffix();
 
-    FILE* sav = Platform::OpenFile(savname, "rb", true);
-    if (!sav) sav = Platform::OpenFile(origsav, "rb", true);
+    FileHandle* sav = Platform::OpenFile(savname, FileMode::Read);
+    if (!sav) sav = Platform::OpenFile(origsav, FileMode::Read);
     if (sav)
     {
-        fseek(sav, 0, SEEK_END);
-        savelen = (u32)ftell(sav);
+        savelen = (u32)Platform::FileLength(sav);
 
-        fseek(sav, 0, SEEK_SET);
+        FileRewind(sav);
         savedata = new u8[savelen];
-        fread(savedata, savelen, 1, sav);
-        fclose(sav);
+        FileRead(savedata, savelen, 1, sav);
+        CloseFile(sav);
     }
 
     bool res = NDS::LoadCart(filedata, filelen, savedata, savelen);
@@ -657,29 +834,47 @@ bool LoadGBAROM(QStringList filepath)
         // regular file
 
         std::string filename = filepath.at(0).toStdString();
-        FILE* f = Platform::OpenFile(filename, "rb", true);
+        FileHandle* f = Platform::OpenFile(filename, FileMode::Read);
         if (!f) return false;
 
-        fseek(f, 0, SEEK_END);
-        long len = ftell(f);
+        long len = FileLength(f);
         if (len > 0x40000000)
         {
-            fclose(f);
+            CloseFile(f);
             return false;
         }
 
-        fseek(f, 0, SEEK_SET);
+        FileRewind(f);
         filedata = new u8[len];
-        size_t nread = fread(filedata, (size_t)len, 1, f);
+        size_t nread = FileRead(filedata, (size_t)len, 1, f);
         if (nread != 1)
         {
-            fclose(f);
+            CloseFile(f);
             delete[] filedata;
             return false;
         }
 
-        fclose(f);
+        CloseFile(f);
         filelen = (u32)len;
+
+        if (filename.length() > 4 && filename.substr(filename.length() - 4) == ".zst")
+        {
+            u8* outContent = nullptr;
+            u32 decompressed = DecompressROM(filedata, len, &outContent);
+
+            if (decompressed > 0)
+            {
+                delete[] filedata;
+                filedata = outContent;
+                filelen = decompressed;
+                filename = filename.substr(0, filename.length() - 4);
+            }
+            else
+            {
+                delete[] filedata;
+                return false;
+            }
+        }
 
         int pos = LastSep(filename);
         basepath = filename.substr(0, pos);
@@ -723,17 +918,16 @@ bool LoadGBAROM(QStringList filepath)
     std::string origsav = savname;
     savname += Platform::InstanceFileSuffix();
 
-    FILE* sav = Platform::OpenFile(savname, "rb", true);
-    if (!sav) sav = Platform::OpenFile(origsav, "rb", true);
+    FileHandle* sav = Platform::OpenFile(savname, FileMode::Read);
+    if (!sav) sav = Platform::OpenFile(origsav, FileMode::Read);
     if (sav)
     {
-        fseek(sav, 0, SEEK_END);
-        savelen = (u32)ftell(sav);
+        savelen = (u32)FileLength(sav);
 
-        fseek(sav, 0, SEEK_SET);
+        FileRewind(sav);
         savedata = new u8[savelen];
-        fread(savedata, savelen, 1, sav);
-        fclose(sav);
+        FileRead(savedata, savelen, 1, sav);
+        CloseFile(sav);
     }
 
     bool res = NDS::LoadGBACart(filedata, filelen, savedata, savelen);
@@ -807,7 +1001,7 @@ QString GBACartLabel()
 }
 
 
-void ROMIcon(u8 (&data)[512], u16 (&palette)[16], u32* iconRef)
+void ROMIcon(const u8 (&data)[512], const u16 (&palette)[16], u32* iconRef)
 {
     int index = 0;
     for (int i = 0; i < 4; i++)
@@ -838,7 +1032,7 @@ void ROMIcon(u8 (&data)[512], u16 (&palette)[16], u32* iconRef)
 #define SEQ_BMP(i) ((i & 0b0000011100000000) >> 8)
 #define SEQ_DUR(i) ((i & 0b0000000011111111) >> 0)
 
-void AnimatedROMIcon(u8 (&data)[8][512], u16 (&palette)[8][16], u16 (&sequence)[64], u32 (&animatedTexRef)[32 * 32 * 64], std::vector<int> &animatedSequenceRef)
+void AnimatedROMIcon(const u8 (&data)[8][512], const u16 (&palette)[8][16], const u16 (&sequence)[64], u32 (&animatedTexRef)[32 * 32 * 64], std::vector<int> &animatedSequenceRef)
 {
     for (int i = 0; i < 64; i++)
     {

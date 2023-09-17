@@ -29,6 +29,7 @@
 #include "DSi_SPI_TSC.h"
 #include "Platform.h"
 
+using namespace Platform;
 
 namespace SPI_Firmware
 {
@@ -96,7 +97,7 @@ u32 FixFirmwareLength(u32 originalLength)
 {
     if (originalLength != 0x20000 && originalLength != 0x40000 && originalLength != 0x80000)
     {
-        printf("Bad firmware size %d, ", originalLength);
+        Log(LogLevel::Warn, "Bad firmware size %d, ", originalLength);
 
         // pick the nearest power-of-two length
         originalLength |= (originalLength >> 1);
@@ -110,13 +111,15 @@ u32 FixFirmwareLength(u32 originalLength)
         if (originalLength > 0x80000) originalLength = 0x80000;
         else if (originalLength < 0x20000) originalLength = 0x20000;
 
-        printf("assuming %d\n", originalLength);
+        Log(LogLevel::Debug, "assuming %d\n", originalLength);
     }
     return originalLength;
 }
 
 void LoadDefaultFirmware()
 {
+    Log(LogLevel::Debug, "Using default firmware image...\n");
+
     FirmwareLength = 0x20000;
     Firmware = new u8[FirmwareLength];
     memset(Firmware, 0xFF, FirmwareLength);
@@ -130,6 +133,10 @@ void LoadDefaultFirmware()
         Firmware[0x2F] = 0x0F;
         Firmware[0x1FD] = 0x01;
         Firmware[0x1FE] = 0x20;
+        Firmware[0x2FF] = 0x80; // boot0: use NAND as stage2 medium
+
+        // these need to be zero (part of the stage2 firmware signature!)
+        memset(&Firmware[0x22], 0, 8);
     }
     else
     {
@@ -215,13 +222,15 @@ void LoadDefaultFirmware()
     // wifi access points
     // TODO: WFC ID??
 
-    FILE* f = Platform::OpenLocalFile("wfcsettings.bin"+Platform::InstanceFileSuffix(), "rb");
-    if (!f) f = Platform::OpenLocalFile("wfcsettings.bin", "rb");
+    std::string wfcsettings = Platform::GetConfigString(ConfigEntry::WifiSettingsPath);
+
+    FileHandle* f = Platform::OpenLocalFile(wfcsettings + Platform::InstanceFileSuffix(), FileMode::Read);
+    if (!f) f = Platform::OpenLocalFile(wfcsettings, FileMode::Read);
     if (f)
     {
         u32 apdata = userdata - 0xA00;
-        fread(&Firmware[apdata], 0x900, 1, f);
-        fclose(f);
+        FileRead(&Firmware[apdata], 0x900, 1, f);
+        CloseFile(f);
     }
     else
     {
@@ -260,38 +269,36 @@ void LoadDefaultFirmware()
     }
 }
 
-void LoadFirmwareFromFile(FILE* f, bool makecopy)
+void LoadFirmwareFromFile(FileHandle* f, bool makecopy)
 {
-    fseek(f, 0, SEEK_END);
-
-    FirmwareLength = FixFirmwareLength((u32)ftell(f));
+    FirmwareLength = FixFirmwareLength(FileLength(f));
 
     Firmware = new u8[FirmwareLength];
 
-    fseek(f, 0, SEEK_SET);
-    fread(Firmware, 1, FirmwareLength, f);
+    FileRewind(f);
+    FileRead(Firmware, 1, FirmwareLength, f);
 
     // take a backup
     std::string fwBackupPath;
     if (!makecopy) fwBackupPath = FirmwarePath + ".bak";
     else           fwBackupPath = FirmwarePath;
-    FILE* bf = Platform::OpenLocalFile(fwBackupPath, "rb");
+    FileHandle* bf = Platform::OpenLocalFile(fwBackupPath, FileMode::Read);
     if (!bf)
     {
-        bf = Platform::OpenLocalFile(fwBackupPath, "wb");
+        bf = Platform::OpenLocalFile(fwBackupPath, FileMode::Write);
         if (bf)
         {
-            fwrite(Firmware, 1, FirmwareLength, bf);
-            fclose(bf);
+            FileWrite(Firmware, 1, FirmwareLength, bf);
+            CloseFile(bf);
         }
         else
         {
-            printf("Could not write firmware backup!\n");
+            Log(LogLevel::Error, "Could not write firmware backup!\n");
         }
     }
     else
     {
-        fclose(bf);
+        CloseFile(bf);
     }
 }
 
@@ -345,25 +352,27 @@ void Reset()
         else
             FirmwarePath = Platform::GetConfigString(Platform::FirmwarePath);
 
+        Log(LogLevel::Debug, "SPI firmware: loading from file %s\n", FirmwarePath.c_str());
+
         bool makecopy = false;
         std::string origpath = FirmwarePath;
         FirmwarePath += Platform::InstanceFileSuffix();
 
-        FILE* f = Platform::OpenLocalFile(FirmwarePath, "rb");
+        FileHandle* f = Platform::OpenLocalFile(FirmwarePath, FileMode::Read);
         if (!f)
         {
-            f = Platform::OpenLocalFile(origpath, "rb");
+            f = Platform::OpenLocalFile(origpath, FileMode::Read);
             makecopy = true;
         }
         if (!f)
         {
-            printf("Firmware not found! Generating default firmware.\n");
+            Log(LogLevel::Warn,"Firmware not found! Generating default firmware.\n");
             FirmwarePath = "";
         }
         else
         {
             LoadFirmwareFromFile(f, makecopy);
-            fclose(f);
+            CloseFile(f);
         }
     }
 
@@ -434,17 +443,17 @@ void Reset()
         }
     }
 
-    printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+    Log(LogLevel::Info, "MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
            Firmware[0x36], Firmware[0x37], Firmware[0x38],
            Firmware[0x39], Firmware[0x3A], Firmware[0x3B]);
 
     // verify shit
-    printf("FW: WIFI CRC16 = %s\n", VerifyCRC16(0x0000, 0x2C, *(u16*)&Firmware[0x2C], 0x2A)?"GOOD":"BAD");
-    printf("FW: AP1 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FA00&FirmwareMask, 0xFE, 0x7FAFE&FirmwareMask)?"GOOD":"BAD");
-    printf("FW: AP2 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FB00&FirmwareMask, 0xFE, 0x7FBFE&FirmwareMask)?"GOOD":"BAD");
-    printf("FW: AP3 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FC00&FirmwareMask, 0xFE, 0x7FCFE&FirmwareMask)?"GOOD":"BAD");
-    printf("FW: USER0 CRC16 = %s\n", VerifyCRC16(0xFFFF, 0x7FE00&FirmwareMask, 0x70, 0x7FE72&FirmwareMask)?"GOOD":"BAD");
-    printf("FW: USER1 CRC16 = %s\n", VerifyCRC16(0xFFFF, 0x7FF00&FirmwareMask, 0x70, 0x7FF72&FirmwareMask)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: WIFI CRC16 = %s\n", VerifyCRC16(0x0000, 0x2C, *(u16*)&Firmware[0x2C], 0x2A)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: AP1 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FA00&FirmwareMask, 0xFE, 0x7FAFE&FirmwareMask)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: AP2 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FB00&FirmwareMask, 0xFE, 0x7FBFE&FirmwareMask)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: AP3 CRC16 = %s\n", VerifyCRC16(0x0000, 0x7FC00&FirmwareMask, 0xFE, 0x7FCFE&FirmwareMask)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: USER0 CRC16 = %s\n", VerifyCRC16(0xFFFF, 0x7FE00&FirmwareMask, 0x70, 0x7FE72&FirmwareMask)?"GOOD":"BAD");
+    Log(LogLevel::Debug, "FW: USER1 CRC16 = %s\n", VerifyCRC16(0xFFFF, 0x7FF00&FirmwareMask, 0x70, 0x7FF72&FirmwareMask)?"GOOD":"BAD");
 
     Hold = 0;
     CurCmd = 0;
@@ -594,7 +603,7 @@ void Write(u8 val, u32 hold)
         break;
 
     default:
-        printf("unknown firmware SPI command %02X\n", CurCmd);
+        Log(LogLevel::Warn, "unknown firmware SPI command %02X\n", CurCmd);
         Data = 0xFF;
         break;
     }
@@ -603,28 +612,26 @@ void Write(u8 val, u32 hold)
     {
         if (!FirmwarePath.empty())
         {
-            FILE* f = Platform::OpenLocalFile(FirmwarePath, "r+b");
+            FileHandle* f = Platform::OpenLocalFile(FirmwarePath, FileMode::ReadWriteExisting);
             if (f)
             {
                 u32 cutoff = ((NDS::ConsoleType==1) ? 0x7F400 : 0x7FA00) & FirmwareMask;
-                fseek(f, cutoff, SEEK_SET);
-                fwrite(&Firmware[cutoff], FirmwareLength-cutoff, 1, f);
-                fclose(f);
+                FileSeek(f, cutoff, FileSeekOrigin::Start);
+                FileWrite(&Firmware[cutoff], FirmwareLength-cutoff, 1, f);
+                CloseFile(f);
             }
         }
         else
         {
-            char wfcfile[50] = {0};
-            int inst = Platform::InstanceID();
-            if (inst > 0) snprintf(wfcfile, 49, "wfcsettings.bin", Platform::InstanceID());
-            else          strncpy(wfcfile, "wfcsettings.bin", 49);
+            std::string wfcfile = Platform::GetConfigString(ConfigEntry::WifiSettingsPath);
+            if (Platform::InstanceID() > 0) wfcfile += Platform::InstanceFileSuffix();
 
-            FILE* f = Platform::OpenLocalFile(wfcfile, "wb");
+            FileHandle* f = Platform::OpenLocalFile(wfcfile, FileMode::Write);
             if (f)
             {
                 u32 cutoff = 0x7F400 & FirmwareMask;
-                fwrite(&Firmware[cutoff], 0x900, 1, f);
-                fclose(f);
+                FileWrite(&Firmware[cutoff], 0x900, 1, f);
+                CloseFile(f);
             }
         }
     }
@@ -724,7 +731,7 @@ void Write(u8 val, u32 hold)
             switch (regid)
             {
             case 0:
-                if (val & 0x40) NDS::Stop(); // shutdown
+                if (val & 0x40) NDS::Stop(StopReason::PowerOff); // shutdown
                 //printf("power %02X\n", val);
                 break;
             case 4:
@@ -946,8 +953,8 @@ void WriteCnt(u16 val)
     // TODO: presumably the transfer speed can be changed during a transfer
     // like with the NDSCart SPI interface
     Cnt = (Cnt & 0x0080) | (val & 0xCF03);
-    if (val & 0x0400) printf("!! CRAPOED 16BIT SPI MODE\n");
-    if (Cnt & (1<<7)) printf("!! CHANGING SPICNT DURING TRANSFER: %04X\n", val);
+    if (val & 0x0400) Log(LogLevel::Warn, "!! CRAPOED 16BIT SPI MODE\n");
+    if (Cnt & (1<<7)) Log(LogLevel::Warn, "!! CHANGING SPICNT DURING TRANSFER: %04X\n", val);
 }
 
 void TransferDone(u32 param)
@@ -992,7 +999,7 @@ void WriteData(u8 val)
         else
             SPI_TSC::Write(val, Cnt&(1<<11));
         break;
-    default: printf("SPI to unknown device %04X %02X\n", Cnt, val); break;
+        default: Log(LogLevel::Warn, "SPI to unknown device %04X %02X\n", Cnt, val); break;
     }
 
     // SPI transfers one bit per cycle -> 8 cycles per byte

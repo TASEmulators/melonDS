@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "Platform.h"
 #include "Savestate.h"
 #include "types.h"
 
@@ -32,13 +33,14 @@ extern void (*ReadCallback)(u32);
 extern void (*WriteCallback)(u32);
 extern void (*ExecuteCallback)(u32);
 
-typedef enum {
+enum TraceMask_t
+{
     TRACE_NONE = 0,
     TRACE_ARM7_THUMB = 1,
     TRACE_ARM7_ARM = 2,
     TRACE_ARM9_THUMB = 4,
     TRACE_ARM9_ARM = 8,
-} TraceMask_t;
+};
 
 extern TraceMask_t TraceMask;
 
@@ -132,7 +134,7 @@ enum
     IRQ2_DSi_Unused3,
     IRQ2_DSi_GPIO33_0,
     IRQ2_DSi_Headphone,
-    IRQ2_DSi_PowerButton,
+    IRQ2_DSi_BPTWL,
     IRQ2_DSi_GPIO33_3, // "sound enable input"
     IRQ2_DSi_SDMMC,
     IRQ2_DSi_SD_Data1,
@@ -249,7 +251,9 @@ bool Init();
 void DeInit();
 void Reset();
 void Start();
-void Stop();
+
+/// Stop the emulator.
+void Stop(Platform::StopReason reason = Platform::StopReason::External);
 
 bool DoSavestate(Savestate* file);
 
@@ -267,7 +271,7 @@ void EjectCart();
 bool CartInserted();
 
 bool NeedsDirectBoot();
-void SetupDirectBoot(std::string romname);
+void SetupDirectBoot(const std::string& romname);
 
 bool LoadGBACart(const u8* romdata, u32 romlen, const u8* savedata, u32 savelen);
 void LoadGBAAddon(int type);
@@ -351,9 +355,6 @@ u32 ARM7IORead32(u32 addr);
 void ARM7IOWrite8(u32 addr, u8 val);
 void ARM7IOWrite16(u32 addr, u16 val);
 void ARM7IOWrite32(u32 addr, u32 val);
-
-void GetRegs(u32* regs);
-void SetReg(s32 ncpu, s32 index, s32 val);
 
 }
 

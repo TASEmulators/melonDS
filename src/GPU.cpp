@@ -16,7 +16,6 @@
     with melonDS. If not, see http://www.gnu.org/licenses/.
 */
 
-#include <stdio.h>
 #include <string.h>
 #include "NDS.h"
 #include "GPU.h"
@@ -26,6 +25,9 @@
 #endif
 
 #include "GPU2D_Soft.h"
+
+using Platform::Log;
+using Platform::LogLevel;
 
 namespace GPU
 {
@@ -112,33 +114,33 @@ std::unique_ptr<GPU2D::Renderer2D> GPU2D_Renderer = {};
                 VRAMDirty need to be reset for the respective VRAM bank.
 */
 
-ECL_INVISIBLE VRAMTrackingSet<512*1024, 16*1024> VRAMDirty_ABG;
-ECL_INVISIBLE VRAMTrackingSet<256*1024, 16*1024> VRAMDirty_AOBJ;
-ECL_INVISIBLE VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_BBG;
-ECL_INVISIBLE VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_BOBJ;
+VRAMTrackingSet<512*1024, 16*1024> VRAMDirty_ABG;
+VRAMTrackingSet<256*1024, 16*1024> VRAMDirty_AOBJ;
+VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_BBG;
+VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_BOBJ;
 
-ECL_INVISIBLE VRAMTrackingSet<32*1024, 8*1024> VRAMDirty_ABGExtPal;
-ECL_INVISIBLE VRAMTrackingSet<32*1024, 8*1024> VRAMDirty_BBGExtPal;
-ECL_INVISIBLE VRAMTrackingSet<8*1024, 8*1024> VRAMDirty_AOBJExtPal;
-ECL_INVISIBLE VRAMTrackingSet<8*1024, 8*1024> VRAMDirty_BOBJExtPal;
+VRAMTrackingSet<32*1024, 8*1024> VRAMDirty_ABGExtPal;
+VRAMTrackingSet<32*1024, 8*1024> VRAMDirty_BBGExtPal;
+VRAMTrackingSet<8*1024, 8*1024> VRAMDirty_AOBJExtPal;
+VRAMTrackingSet<8*1024, 8*1024> VRAMDirty_BOBJExtPal;
 
-ECL_INVISIBLE VRAMTrackingSet<512*1024, 128*1024> VRAMDirty_Texture;
-ECL_INVISIBLE VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_TexPal;
+VRAMTrackingSet<512*1024, 128*1024> VRAMDirty_Texture;
+VRAMTrackingSet<128*1024, 16*1024> VRAMDirty_TexPal;
 
-ECL_INVISIBLE NonStupidBitField<128*1024/VRAMDirtyGranularity> VRAMDirty[9];
+NonStupidBitField<128*1024/VRAMDirtyGranularity> VRAMDirty[9];
 
-ECL_INVISIBLE u8 VRAMFlat_ABG[512*1024];
-ECL_INVISIBLE u8 VRAMFlat_BBG[128*1024];
-ECL_INVISIBLE u8 VRAMFlat_AOBJ[256*1024];
-ECL_INVISIBLE u8 VRAMFlat_BOBJ[128*1024];
+u8 VRAMFlat_ABG[512*1024];
+u8 VRAMFlat_BBG[128*1024];
+u8 VRAMFlat_AOBJ[256*1024];
+u8 VRAMFlat_BOBJ[128*1024];
 
-ECL_INVISIBLE u8 VRAMFlat_ABGExtPal[32*1024];
-ECL_INVISIBLE u8 VRAMFlat_BBGExtPal[32*1024];
-ECL_INVISIBLE u8 VRAMFlat_AOBJExtPal[8*1024];
-ECL_INVISIBLE u8 VRAMFlat_BOBJExtPal[8*1024];
+u8 VRAMFlat_ABGExtPal[32*1024];
+u8 VRAMFlat_BBGExtPal[32*1024];
+u8 VRAMFlat_AOBJExtPal[8*1024];
+u8 VRAMFlat_BOBJExtPal[8*1024];
 
-ECL_INVISIBLE u8 VRAMFlat_Texture[512*1024];
-ECL_INVISIBLE u8 VRAMFlat_TexPal[128*1024];
+u8 VRAMFlat_Texture[512*1024];
+u8 VRAMFlat_TexPal[128*1024];
 
 u32 OAMDirty;
 u32 PaletteDirty;
@@ -165,10 +167,12 @@ void DeInit()
     GPU2D_Renderer.reset();
     GPU3D::DeInit();
 
-    //if (Framebuffer[0][0]) delete[] Framebuffer[0][0];
-    //if (Framebuffer[0][1]) delete[] Framebuffer[0][1];
-    //if (Framebuffer[1][0]) delete[] Framebuffer[1][0];
-    //if (Framebuffer[1][1]) delete[] Framebuffer[1][1];
+#if false
+    if (Framebuffer[0][0]) delete[] Framebuffer[0][0];
+    if (Framebuffer[0][1]) delete[] Framebuffer[0][1];
+    if (Framebuffer[1][0]) delete[] Framebuffer[1][0];
+    if (Framebuffer[1][1]) delete[] Framebuffer[1][1];
+#endif
 }
 
 void ResetVRAMCache()
@@ -450,20 +454,22 @@ void SetRenderSettings(int renderer, RenderSettings& settings)
     }
 
     int fbsize;
-    //if (GPU3D::CurrentRenderer->Accelerated)
-        //fbsize = (256*3 + 1) * 192;
-    //else
+    if (GPU3D::CurrentRenderer->Accelerated)
+        fbsize = (256*3 + 1) * 192;
+    else
         fbsize = 256 * 192;
 
-    //if (Framebuffer[0][0]) { delete[] Framebuffer[0][0]; Framebuffer[0][0] = nullptr; }
-    //if (Framebuffer[1][0]) { delete[] Framebuffer[1][0]; Framebuffer[1][0] = nullptr; }
-    //if (Framebuffer[0][1]) { delete[] Framebuffer[0][1]; Framebuffer[0][1] = nullptr; }
-    //if (Framebuffer[1][1]) { delete[] Framebuffer[1][1]; Framebuffer[1][1] = nullptr; }
+#if false
+    if (Framebuffer[0][0]) { delete[] Framebuffer[0][0]; Framebuffer[0][0] = nullptr; }
+    if (Framebuffer[1][0]) { delete[] Framebuffer[1][0]; Framebuffer[1][0] = nullptr; }
+    if (Framebuffer[0][1]) { delete[] Framebuffer[0][1]; Framebuffer[0][1] = nullptr; }
+    if (Framebuffer[1][1]) { delete[] Framebuffer[1][1]; Framebuffer[1][1] = nullptr; }
 
-    //Framebuffer[0][0] = new u32[fbsize];
-    //Framebuffer[1][0] = new u32[fbsize];
-    //Framebuffer[0][1] = new u32[fbsize];
-    //Framebuffer[1][1] = new u32[fbsize];
+    Framebuffer[0][0] = new u32[fbsize];
+    Framebuffer[1][0] = new u32[fbsize];
+    Framebuffer[0][1] = new u32[fbsize];
+    Framebuffer[1][1] = new u32[fbsize];
+#endif
 
     if (!Framebuffer[0][0]) { Framebuffer[0][0] = alloc_invisible<u32>(fbsize); }
     if (!Framebuffer[1][0]) { Framebuffer[1][0] = alloc_invisible<u32>(fbsize); }
@@ -992,7 +998,7 @@ void SetPowerCnt(u32 val)
     // * bit9: disables engine B palette, OAM and rendering (screen turns white)
     // * bit15: screen swap
 
-    if (!(val & (1<<0))) printf("!!! CLEARING POWCNT BIT0. DANGER\n");
+    if (!(val & (1<<0))) Log(LogLevel::Warn, "!!! CLEARING POWCNT BIT0. DANGER\n");
 
     GPU2D_A.SetEnabled(val & (1<<1));
     GPU2D_B.SetEnabled(val & (1<<9));

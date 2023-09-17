@@ -35,6 +35,7 @@ extern SaveManager* GBASave;
 QString VerifySetup();
 void Reset();
 bool LoadBIOS();
+void ClearBackupState();
 
 bool LoadROM(QStringList filepath, bool reset);
 void EjectCart();
@@ -49,16 +50,16 @@ QString GBACartLabel();
 
 std::string GetSavestateName(int slot);
 bool SavestateExists(int slot);
-bool LoadState(std::string filename);
-bool SaveState(std::string filename);
+bool LoadState(const std::string& filename);
+bool SaveState(const std::string& filename);
 void UndoStateLoad();
 
 void EnableCheats(bool enable);
 ARCodeFile* GetCheatFile();
 
-void ROMIcon(u8 (&data)[512], u16 (&palette)[16], u32* iconRef);
-void AnimatedROMIcon(u8 (&data)[8][512], u16 (&palette)[8][16],
-                     u16 (&sequence)[64], u32 (&animatedTexRef)[32 * 32 * 64],
+void ROMIcon(const u8 (&data)[512], const u16 (&palette)[16], u32* iconRef);
+void AnimatedROMIcon(const u8 (&data)[8][512], const u16 (&palette)[8][16],
+                     const u16 (&sequence)[64], u32 (&animatedTexRef)[32 * 32 * 64],
                      std::vector<int> &animatedSequenceRef);
 
 }

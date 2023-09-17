@@ -32,21 +32,23 @@ enum
     HK_FastForwardToggle,
     HK_FullscreenToggle,
     HK_SwapScreens,
+    HK_SwapScreenEmphasis,
     HK_SolarSensorDecrease,
     HK_SolarSensorIncrease,
     HK_FrameStep,
+    HK_PowerButton,
+    HK_VolumeUp,
+    HK_VolumeDown,
     HK_MAX
 };
 
 enum
 {
-    screenSizing_Even,
-    screenSizing_EmphTop,
-    screenSizing_EmphBot,
-    screenSizing_Auto,
-    screenSizing_TopOnly,
-    screenSizing_BotOnly,
-    screenSizing_MAX,
+    micInputType_Silence,
+    micInputType_External,
+    micInputType_Noise,
+    micInputType_Wav,
+    micInputType_MAX,
 };
 
 namespace Config
@@ -109,10 +111,6 @@ extern bool ShowOSD;
 extern int ConsoleType;
 extern bool DirectBoot;
 
-extern bool UseRealTime;
-extern bool FixedBootTime;
-extern int TimeAtBoot;
-
 #ifdef JIT_ENABLED
 extern bool JIT_Enable;
 extern int JIT_MaxBlockSize;
@@ -154,6 +152,7 @@ extern int FirmwareBirthdayDay;
 extern int FirmwareFavouriteColour;
 extern std::string FirmwareMessage;
 extern std::string FirmwareMAC;
+extern std::string WifiSettingsPath;
 
 extern int MPAudioMode;
 extern int MPRecvTimeout;
@@ -164,12 +163,15 @@ extern bool DirectLAN;
 extern bool SavestateRelocSRAM;
 
 extern int AudioInterp;
-extern int AudioBitrate;
+extern int AudioBitDepth;
 extern int AudioVolume;
+extern bool DSiVolumeSync;
 extern int MicInputType;
+extern std::string MicDevice;
 extern std::string MicWavPath;
 
 extern std::string LastROMFolder;
+extern std::string LastBIOSFolder;
 
 extern std::string RecentROMList[10];
 
@@ -186,6 +188,8 @@ extern bool PauseLostFocus;
 extern bool DSBatteryLevelOkay;
 extern int DSiBatteryLevel;
 extern bool DSiBatteryCharging;
+
+extern bool DSiFullBIOSBoot;
 
 extern CameraConfig Camera[2];
 
