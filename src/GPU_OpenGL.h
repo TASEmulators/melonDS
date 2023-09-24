@@ -63,6 +63,9 @@ private:
     GLuint CompScreenInputTex;
     GLuint CompScreenOutputTex[2];
     GLuint CompScreenOutputFB[2];
+public:
+    static void* operator new(std::size_t count) { return alloc_invisible(count); }
+    static void operator delete(void* ptr) { /* can't free, only used when falling back to software renderer */ }
 };
 
 }

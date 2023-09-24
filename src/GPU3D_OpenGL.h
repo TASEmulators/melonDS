@@ -148,5 +148,8 @@ private:
     u32 Framebuffer[256*192];
 
 
+public:
+    static void* operator new(std::size_t count) { return alloc_invisible(count); }
+    static void operator delete(void* ptr) { /* can't free, only used when falling back to software renderer */ }
 };
 }
