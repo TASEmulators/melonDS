@@ -50,13 +50,8 @@ void SoftRenderer::SetupRenderThread()
 }
 
 
-SoftRenderer::SoftRenderer()
+SoftRenderer::SoftRenderer() noexcept
     : Renderer3D(false)
-{
-
-}
-
-bool SoftRenderer::Init()
 {
     Sema_RenderStart = Platform::Semaphore_Create();
     Sema_RenderDone = Platform::Semaphore_Create();
@@ -65,11 +60,10 @@ bool SoftRenderer::Init()
     Threaded = false;
     RenderThreadRunning = false;
     RenderThreadRendering = false;
-
-    return true;
+    RenderThread = nullptr;
 }
 
-void SoftRenderer::DeInit()
+SoftRenderer::~SoftRenderer()
 {
     StopRenderThread();
 
@@ -86,9 +80,7 @@ void SoftRenderer::Reset()
 
     PrevIsShadowMask = false;
 
-#if false
     SetupRenderThread();
-#endif
 }
 
 void SoftRenderer::SetRenderSettings(GPU::RenderSettings& settings)

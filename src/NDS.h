@@ -60,6 +60,7 @@ enum
     Event_LCD = 0,
     Event_SPU,
     Event_Wifi,
+    Event_RTC,
 
     Event_DisplayFIFO,
     Event_ROMTransfer,
@@ -143,6 +144,33 @@ enum
     IRQ2_DSi_AES,
     IRQ2_DSi_I2C,
     IRQ2_DSi_MicExt
+};
+
+enum
+{
+    CPUStop_DMA9_0 = (1<<0),
+    CPUStop_DMA9_1 = (1<<1),
+    CPUStop_DMA9_2 = (1<<2),
+    CPUStop_DMA9_3 = (1<<3),
+    CPUStop_NDMA9_0 = (1<<4),
+    CPUStop_NDMA9_1 = (1<<5),
+    CPUStop_NDMA9_2 = (1<<6),
+    CPUStop_NDMA9_3 = (1<<7),
+    CPUStop_DMA9 = 0xFFF,
+
+    CPUStop_DMA7_0 = (1<<16),
+    CPUStop_DMA7_1 = (1<<17),
+    CPUStop_DMA7_2 = (1<<18),
+    CPUStop_DMA7_3 = (1<<19),
+    CPUStop_NDMA7_0 = (1<<20),
+    CPUStop_NDMA7_1 = (1<<21),
+    CPUStop_NDMA7_2 = (1<<22),
+    CPUStop_NDMA7_3 = (1<<23),
+    CPUStop_DMA7 = (0xFFF<<16),
+
+    CPUStop_Wakeup = (1<<29),
+    CPUStop_Sleep = (1<<30),
+    CPUStop_GXStall = (1<<31),
 };
 
 struct Timer
@@ -243,6 +271,7 @@ extern MemRegion SWRAM_ARM9;
 extern MemRegion SWRAM_ARM7;
 
 extern u32 KeyInput;
+extern u16 RCnt;
 
 const u32 ARM7WRAMSize = 0x10000;
 extern u8* ARM7WRAM;
@@ -264,6 +293,8 @@ void SetARM7RegionTimings(u32 addrstart, u32 addrend, u32 region, int buswidth, 
 void SetConsoleType(int type);
 
 void LoadBIOS();
+bool IsLoadedARM9BIOSBuiltIn();
+bool IsLoadedARM7BIOSBuiltIn();
 
 bool LoadCart(const u8* romdata, u32 romlen, const u8* savedata, u32 savelen);
 void LoadSave(const u8* savedata, u32 savelen);

@@ -182,7 +182,6 @@ void Write(u8 val, u32 hold)
             if (id < 0x0B)
             {
                 NDS::AltLagFrameFlag = false;
-                MAYBE_CALLBACK(InputCallback);
 
                 // X coordinates
 
@@ -194,7 +193,6 @@ void Write(u8 val, u32 hold)
             else if (id < 0x15)
             {
                 NDS::AltLagFrameFlag = false;
-                MAYBE_CALLBACK(InputCallback);
 
                 // Y coordinates
 

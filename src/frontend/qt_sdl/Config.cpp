@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include "Platform.h"
 #include "Config.h"
 
@@ -140,11 +141,21 @@ int MouseHideSeconds;
 
 bool PauseLostFocus;
 
+int64_t RTCOffset;
+
 bool DSBatteryLevelOkay;
 int DSiBatteryLevel;
 bool DSiBatteryCharging;
 
 bool DSiFullBIOSBoot;
+
+#ifdef GDBSTUB_ENABLED
+bool GdbEnabled;
+int GdbPortARM7;
+int GdbPortARM9;
+bool GdbARM7BreakOnStartup;
+bool GdbARM9BreakOnStartup;
+#endif
 
 CameraConfig Camera[2];
 
@@ -331,11 +342,21 @@ ConfigEntry ConfigFile[] =
     {"MouseHideSeconds", 0, &MouseHideSeconds, 5, false},
     {"PauseLostFocus",   1, &PauseLostFocus,   false, false},
 
+    {"RTCOffset",       3, &RTCOffset,       (int64_t)0, true},
+
     {"DSBatteryLevelOkay",   1, &DSBatteryLevelOkay, true, true},
     {"DSiBatteryLevel",    0, &DSiBatteryLevel, 0xF, true},
     {"DSiBatteryCharging", 1, &DSiBatteryCharging, true, true},
 
     {"DSiFullBIOSBoot", 1, &DSiFullBIOSBoot, false, true},
+
+#ifdef GDBSTUB_ENABLED
+    {"GdbEnabled", 1, &GdbEnabled, false, false},
+    {"GdbPortARM7", 0, &GdbPortARM7, 3334, true},
+    {"GdbPortARM9", 0, &GdbPortARM9, 3333, true},
+    {"GdbARM7BreakOnStartup", 1, &GdbARM7BreakOnStartup, false, true},
+    {"GdbARM9BreakOnStartup", 1, &GdbARM9BreakOnStartup, false, true},
+#endif
 
     // TODO!!
     // we need a more elegant way to deal with this
@@ -390,6 +411,7 @@ void LoadFile(int inst)
                 case 0: *(int*)entry->Value = strtol(entryval, NULL, 10); break;
                 case 1: *(bool*)entry->Value = strtol(entryval, NULL, 10) ? true:false; break;
                 case 2: *(std::string*)entry->Value = entryval; break;
+                case 3: *(int64_t*)entry->Value = strtoll(entryval, NULL, 10); break;
                 }
 
                 break;
@@ -410,6 +432,7 @@ void Load()
         case 0: *(int*)entry->Value = std::get<int>(entry->Default); break;
         case 1: *(bool*)entry->Value = std::get<bool>(entry->Default); break;
         case 2: *(std::string*)entry->Value = std::get<std::string>(entry->Default); break;
+        case 3: *(int64_t*)entry->Value = std::get<int64_t>(entry->Default); break;
         }
     }
 
@@ -446,6 +469,7 @@ void Save()
         case 0: Platform::FileWriteFormatted(f, "%s=%d\r\n", entry->Name, *(int*)entry->Value); break;
         case 1: Platform::FileWriteFormatted(f, "%s=%d\r\n", entry->Name, *(bool*)entry->Value ? 1:0); break;
         case 2: Platform::FileWriteFormatted(f, "%s=%s\r\n", entry->Name, (*(std::string*)entry->Value).c_str()); break;
+        case 3: Platform::FileWriteFormatted(f, "%s=%" PRId64 "\r\n", entry->Name, *(int64_t*)entry->Value); break;
         }
     }
 

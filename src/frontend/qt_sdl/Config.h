@@ -57,9 +57,9 @@ namespace Config
 struct ConfigEntry
 {
     char Name[32];
-    int Type;           // 0=int 1=bool 2=string
+    int Type;           // 0=int 1=bool 2=string 3=64bit int
     void* Value;        // pointer to the value variable
-    std::variant<int, bool, std::string> Default;
+    std::variant<int, bool, std::string, int64_t> Default;
     bool InstanceUnique; // whether the setting can exist individually for each instance in multiplayer
 };
 
@@ -185,6 +185,8 @@ extern bool MouseHide;
 extern int MouseHideSeconds;
 extern bool PauseLostFocus;
 
+extern int64_t RTCOffset;
+
 extern bool DSBatteryLevelOkay;
 extern int DSiBatteryLevel;
 extern bool DSiBatteryCharging;
@@ -192,6 +194,12 @@ extern bool DSiBatteryCharging;
 extern bool DSiFullBIOSBoot;
 
 extern CameraConfig Camera[2];
+
+extern bool GdbEnabled;
+extern int GdbPortARM7;
+extern int GdbPortARM9;
+extern bool GdbARM7BreakOnStartup;
+extern bool GdbARM9BreakOnStartup;
 
 
 void Load();
