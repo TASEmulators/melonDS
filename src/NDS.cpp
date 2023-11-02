@@ -1368,6 +1368,19 @@ void TouchScreen(u16 x, u16 y)
     }
 }
 
+void MoveTouch(u16 x, u16 y)
+{
+    if (ConsoleType == 1)
+    {
+        DSi_SPI_TSC::MoveTouchCoords(x, y);
+    }
+    else
+    {
+        SPI_TSC::MoveTouchCoords(x, y);
+        KeyInput &= ~(1 << (16+6));
+    }
+}
+
 void ReleaseScreen()
 {
     if (ConsoleType == 1)

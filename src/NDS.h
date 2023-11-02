@@ -311,6 +311,7 @@ void EjectGBACart();
 u32 RunFrame();
 
 void TouchScreen(u16 x, u16 y);
+void MoveTouch(u16 x, u16 y);
 void ReleaseScreen();
 
 void SetKeyMask(u32 mask);

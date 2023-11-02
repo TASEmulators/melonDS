@@ -38,6 +38,7 @@ u8 Bank3Regs[0x80];
 u8 TSCMode;
 
 u16 TouchX, TouchY;
+s16 DeltaX, DeltaY;
 
 
 bool Init()
@@ -102,6 +103,8 @@ void SetTouchCoords(u16 x, u16 y)
     TouchX = x;
     TouchY = y;
 
+    DeltaX = DeltaY = 0;
+
     u8 oldpress = Bank3Regs[0x0E] & 0x01;
 
     if (y == 0xFFF)
@@ -135,6 +138,26 @@ void SetTouchCoords(u16 x, u16 y)
     }
 }
 
+void MoveTouchCoords(u16 x, u16 y)
+{
+    if (TSCMode == 0x00)
+    {
+        NDS::KeyInput &= ~(1 << (16+6));
+        return SPI_TSC::MoveTouchCoords(x, y);
+    }
+
+    if (Bank3Regs[0x0E] & 0x01)
+    {
+        return SetTouchCoords(x, y);
+    }
+
+    DeltaX = (x << 4) - (TouchX & ~0x8000);
+    DeltaY = (y << 4) - (TouchY & ~0x8000);
+
+    Bank3Regs[0x09] = 0x80;
+    Bank3Regs[0x0E] &= ~0x01;
+}
+
 void MicInputFrame(s16* data, int samples)
 {
     if (TSCMode == 0x00) return SPI_TSC::MicInputFrame(data, samples);
@@ -148,6 +171,20 @@ u8 Read()
     if (TSCMode == 0x00) return SPI_TSC::Read();
 
     return Data;
+}
+
+static s16 XTouchOffset()
+{
+    // 560190 cycles per frame
+    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
+    return (cyclepos * DeltaX) / 560190;
+}
+
+static s16 YTouchOffset()
+{
+    // 560190 cycles per frame
+    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
+    return (cyclepos * DeltaY) / 560190;
 }
 
 void Write(u8 val, u32 hold)
@@ -185,8 +222,9 @@ void Write(u8 val, u32 hold)
 
                 // X coordinates
 
-                if (id & 0x01) Data = TouchX >> 8;
-                else           Data = TouchX & 0xFF;
+                u16 touchX = TouchX + XTouchOffset();
+                if (id & 0x01) Data = touchX >> 8;
+                else           Data = touchX & 0xFF;
 
                 TouchX &= 0x7FFF;
             }
@@ -196,8 +234,9 @@ void Write(u8 val, u32 hold)
 
                 // Y coordinates
 
-                if (id & 0x01) Data = TouchY >> 8;
-                else           Data = TouchY & 0xFF;
+                u16 touchY = TouchY + YTouchOffset();
+                if (id & 0x01) Data = touchY >> 8;
+                else           Data = touchY & 0xFF;
 
                 TouchY &= 0x7FFF; // checkme
             }

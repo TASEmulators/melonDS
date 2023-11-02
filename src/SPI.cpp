@@ -478,6 +478,7 @@ u8 Data;
 u16 ConvResult;
 
 u16 TouchX, TouchY;
+s16 DeltaX, DeltaY;
 
 s16 MicBuffer[1024];
 int MicBufferLen;
@@ -522,10 +523,23 @@ void SetTouchCoords(u16 x, u16 y)
     TouchX = x;
     TouchY = y;
 
+    DeltaX = DeltaY = 0;
+
     if (y == 0xFFF) return;
 
     TouchX <<= 4;
     TouchY <<= 4;
+}
+
+void MoveTouchCoords(u16 x, u16 y)
+{
+    if (NDS::KeyInput & (1 << (16+6)))
+    {
+        return SetTouchCoords(x, y);
+    }
+
+    DeltaX = (x << 4) - TouchX;
+    DeltaY = (y << 4) - TouchY;
 }
 
 void MicInputFrame(s16* data, int samples)
@@ -546,6 +560,20 @@ u8 Read()
     return Data;
 }
 
+static s16 XTouchOffset()
+{
+    // 560190 cycles per frame
+    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
+    return (cyclepos * DeltaX) / 560190;
+}
+
+static s16 YTouchOffset()
+{
+    // 560190 cycles per frame
+    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
+    return (cyclepos * DeltaY) / 560190;
+}
+
 void Write(u8 val, u32 hold)
 {
     if (DataPos == 1)
@@ -562,8 +590,8 @@ void Write(u8 val, u32 hold)
 
         switch (ControlByte & 0x70)
         {
-        case 0x10: NDS::AltLagFrameFlag = false; ConvResult = TouchY; break;
-        case 0x50: NDS::AltLagFrameFlag = false; ConvResult = TouchX; break;
+        case 0x10: NDS::AltLagFrameFlag = false; ConvResult = TouchY + YTouchOffset(); break;
+        case 0x50: NDS::AltLagFrameFlag = false; ConvResult = TouchX + XTouchOffset(); break;
 
         case 0x60:
             {
