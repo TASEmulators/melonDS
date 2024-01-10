@@ -177,6 +177,12 @@ void SetDateTime(int year, int month, int day, int hour, int minute, int second)
 {
     int monthdays[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+    if (State.StatusReg1 & 0x80)
+    {
+        State.StatusReg1 &= ~0x80;
+        State.StatusReg1 |= (1<<1);
+    }
+
     // the year range of the DS RTC is limited to 2000-2099
     year %= 100;
     if (year < 0) year = 0;
@@ -219,8 +225,6 @@ void SetDateTime(int year, int month, int day, int hour, int minute, int second)
     State.DateTime[4] = BCD(hour) | pm;
     State.DateTime[5] = BCD(minute);
     State.DateTime[6] = BCD(second);
-
-    State.StatusReg1 &= ~0x80;
 }
 
 void ResetState()
