@@ -421,7 +421,7 @@ void SetupScreenLayout(int screenWidth, int screenHeight,
     // prepare a 'reverse' matrix for the touchscreen
     // this matrix undoes the transforms applied to the bottom screen
     // and can be used to calculate touchscreen coords from host screen coords
-    if (BotEnable)
+    //if (BotEnable)
     {
         M23_Identity(TouchMtx);
 
