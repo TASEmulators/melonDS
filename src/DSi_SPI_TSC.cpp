@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -19,39 +19,26 @@
 #include <stdio.h>
 #include <string.h>
 #include "DSi.h"
-#include "SPI.h"
 #include "DSi_SPI_TSC.h"
 #include "Platform.h"
 
+namespace melonDS
+{
 using Platform::Log;
 using Platform::LogLevel;
 
-namespace DSi_SPI_TSC
-{
-
-u32 DataPos;
-u8 Index;
-u8 Bank;
-u8 Data;
-
-u8 Bank3Regs[0x80];
-u8 TSCMode;
-
-u16 TouchX, TouchY;
-s16 DeltaX, DeltaY;
-
-
-bool Init()
-{
-    return true;
-}
-
-void DeInit()
+DSi_TSC::DSi_TSC(melonDS::DSi& dsi) : TSC(dsi)
 {
 }
 
-void Reset()
+DSi_TSC::~DSi_TSC()
 {
+}
+
+void DSi_TSC::Reset()
+{
+    TSC::Reset();
+
     DataPos = 0;
 
     Bank = 0;
@@ -73,8 +60,10 @@ void Reset()
     TSCMode = 0x01; // DSi mode
 }
 
-void DoSavestate(Savestate* file)
+void DSi_TSC::DoSavestate(Savestate* file)
 {
+    TSC::DoSavestate(file);
+
     file->Section("SPTi");
 
     file->Var32(&DataPos);
@@ -86,19 +75,14 @@ void DoSavestate(Savestate* file)
     file->Var8(&TSCMode);
 }
 
-void SetMode(u8 mode)
+void DSi_TSC::SetMode(u8 mode)
 {
     TSCMode = mode;
 }
 
-void SetTouchCoords(u16 x, u16 y)
+void DSi_TSC::SetTouchCoords(u16 x, u16 y)
 {
-    if (TSCMode == 0x00)
-    {
-        if (y == 0xFFF) NDS::KeyInput |=  (1 << (16+6));
-        else            NDS::KeyInput &= ~(1 << (16+6));
-        return SPI_TSC::SetTouchCoords(x, y);
-    }
+    if (TSCMode == 0x00) return TSC::SetTouchCoords(x, y);
 
     TouchX = x;
     TouchY = y;
@@ -138,13 +122,9 @@ void SetTouchCoords(u16 x, u16 y)
     }
 }
 
-void MoveTouchCoords(u16 x, u16 y)
+void DSi_TSC::MoveTouchCoords(u16 x, u16 y)
 {
-    if (TSCMode == 0x00)
-    {
-        NDS::KeyInput &= ~(1 << (16+6));
-        return SPI_TSC::MoveTouchCoords(x, y);
-    }
+    if (TSCMode == 0x00) return TSC::MoveTouchCoords(x, y);
 
     if (Bank3Regs[0x0E] & 0x01)
     {
@@ -158,38 +138,17 @@ void MoveTouchCoords(u16 x, u16 y)
     Bank3Regs[0x0E] &= ~0x01;
 }
 
-void MicInputFrame(s16* data, int samples)
+void DSi_TSC::MicInputFrame(const s16* data, int samples)
 {
-    if (TSCMode == 0x00) return SPI_TSC::MicInputFrame(data, samples);
+    if (TSCMode == 0x00) return TSC::MicInputFrame(data, samples);
 
     // otherwise we don't handle mic input
     // TODO: handle it where it needs to be
 }
 
-u8 Read()
+void DSi_TSC::Write(u8 val)
 {
-    if (TSCMode == 0x00) return SPI_TSC::Read();
-
-    return Data;
-}
-
-static s16 XTouchOffset()
-{
-    // 560190 cycles per frame
-    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
-    return (cyclepos * DeltaX) / 560190;
-}
-
-static s16 YTouchOffset()
-{
-    // 560190 cycles per frame
-    s64 cyclepos = (s64)NDS::GetSysClockCycles(2);
-    return (cyclepos * DeltaY) / 560190;
-}
-
-void Write(u8 val, u32 hold)
-{
-    if (TSCMode == 0x00) return SPI_TSC::Write(val, hold);
+    if (TSCMode == 0x00) return TSC::Write(val);
 
 #define READWRITE(var) { if (Index & 0x01) Data = var; else var = val; }
 
@@ -218,11 +177,11 @@ void Write(u8 val, u32 hold)
         {
             if (id < 0x0B)
             {
-                NDS::AltLagFrameFlag = false;
+                NDS.AltLagFrameFlag = false;
 
                 // X coordinates
 
-                u16 touchX = TouchX + XTouchOffset();
+                u16 touchX = TouchX + CreateTouchOffset(DeltaX);
                 if (id & 0x01) Data = touchX >> 8;
                 else           Data = touchX & 0xFF;
 
@@ -230,11 +189,11 @@ void Write(u8 val, u32 hold)
             }
             else if (id < 0x15)
             {
-                NDS::AltLagFrameFlag = false;
+                NDS.AltLagFrameFlag = false;
 
                 // Y coordinates
 
-                u16 touchY = TouchY + YTouchOffset();
+                u16 touchY = TouchY + CreateTouchOffset(DeltaY);
                 if (id & 0x01) Data = touchY >> 8;
                 else           Data = touchY & 0xFF;
 
@@ -262,7 +221,7 @@ void Write(u8 val, u32 hold)
                     {
                         Log(LogLevel::Debug, "DSi_SPI_TSC: DS-compatibility mode\n");
                         DataPos = 0;
-                        NDS::KeyInput |= (1 << (16+6));
+                        NDS.KeyInput |= (1 << (16+6));
                         return;
                     }
                 }
@@ -276,8 +235,14 @@ void Write(u8 val, u32 hold)
         Index += (1<<1); // increment index
     }
 
-    if (hold) DataPos++;
-    else      DataPos = 0;
+    DataPos++;
+}
+
+void DSi_TSC::Release()
+{
+    if (TSCMode == 0x00) return TSC::Release();
+
+    DataPos = 0;
 }
 
 }

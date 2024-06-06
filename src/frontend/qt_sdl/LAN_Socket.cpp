@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -26,7 +26,7 @@
 #include "FIFO.h"
 #include "Platform.h"
 
-#include <slirp/libslirp.h>
+#include <libslirp.h>
 
 #ifdef __WIN32__
 	#include <ws2tcpip.h>
@@ -37,6 +37,7 @@
 	#include <time.h>
 #endif
 
+using namespace melonDS;
 
 namespace LAN_Socket
 {

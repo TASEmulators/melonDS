@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -29,7 +29,8 @@
 #include "EmuSettingsDialog.h"
 #include "ui_EmuSettingsDialog.h"
 
-using namespace Platform;
+using namespace melonDS::Platform;
+using namespace melonDS;
 
 EmuSettingsDialog* EmuSettingsDialog::currentDlg = nullptr;
 
@@ -379,6 +380,12 @@ void EmuSettingsDialog::on_btnFirmwareBrowse_clicked()
 
     if (file.isEmpty()) return;
 
+    if (!Platform::CheckFileWritable(file.toStdString()))
+    {
+        QMessageBox::critical(this, "melonDS", "Unable to write to firmware file.\nPlease check file/folder write permissions.");
+        return;
+    }
+
     updateLastBIOSFolder(file);
 
     ui->txtFirmwarePath->setText(file);
@@ -435,6 +442,12 @@ void EmuSettingsDialog::on_btnDLDISDBrowse_clicked()
 
     if (file.isEmpty()) return;
 
+    if (!Platform::CheckFileWritable(file.toStdString()))
+    {
+        QMessageBox::critical(this, "melonDS", "Unable to write to DLDI SD image.\nPlease check file/folder write permissions.");
+        return;
+    }
+
     updateLastBIOSFolder(file);
 
     ui->txtDLDISDPath->setText(file);
@@ -467,6 +480,13 @@ void EmuSettingsDialog::on_btnDSiFirmwareBrowse_clicked()
 
     if (file.isEmpty()) return;
 
+    if (!Platform::CheckFileWritable(file.toStdString()))
+    {
+        QMessageBox::critical(this, "melonDS", "Unable to write to DSi firmware file.\nPlease check file/folder write permissions.");
+        return;
+    }
+
+
     updateLastBIOSFolder(file);
 
     ui->txtDSiFirmwarePath->setText(file);
@@ -480,6 +500,13 @@ void EmuSettingsDialog::on_btnDSiNANDBrowse_clicked()
                                                 "NAND files (*.bin *.mmc *.rom);;Any file (*.*)");
 
     if (file.isEmpty()) return;
+
+    if (!Platform::CheckFileWritable(file.toStdString()))
+    {
+        QMessageBox::critical(this, "melonDS", "Unable to write to DSi NAND image.\nPlease check file/folder write permissions.");
+        return;
+    }
+
 
     updateLastBIOSFolder(file);
 
@@ -508,6 +535,12 @@ void EmuSettingsDialog::on_btnDSiSDBrowse_clicked()
                                                 "Image files (*.bin *.rom *.img *.sd *.dmg);;Any file (*.*)");
 
     if (file.isEmpty()) return;
+
+    if (!Platform::CheckFileWritable(file.toStdString()))
+    {
+        QMessageBox::critical(this, "melonDS", "Unable to write to DSi SD image.\nPlease check file/folder write permissions.");
+        return;
+    }
 
     updateLastBIOSFolder(file);
 

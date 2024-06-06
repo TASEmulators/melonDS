@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -31,7 +31,7 @@
 
 struct AES_ctx;
 
-namespace DSi_NAND
+namespace melonDS::DSi_NAND
 {
 
 enum
@@ -71,7 +71,7 @@ private:
     u32 ReadFATBlock(u64 addr, u32 len, u8* buf);
     u32 WriteFATBlock(u64 addr, u32 len, const u8* buf);
     bool ESEncrypt(u8* data, u32 len) const;
-    bool ESDecrypt(u8* data, u32 len);
+    bool ESDecrypt(u8* data, u32 len) const;
     Platform::FileHandle* CurFile = nullptr;
     DSiKey eMMC_CID;
     u64 ConsoleID;
@@ -161,7 +161,7 @@ union DSiFirmwareSystemSettings
         u32 ConfigFlags;
         u8 Zero02;
         u8 CountryCode;
-        SPI_Firmware::Language Language;
+        Firmware::Language Language;
         u8 RTCYear;
         u32 RTCOffset;
         u8 Zero3[4];

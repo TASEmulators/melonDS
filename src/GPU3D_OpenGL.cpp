@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -25,48 +25,34 @@
 #include "GPU.h"
 #include "GPU3D_OpenGL_shaders.h"
 
-namespace GPU3D
+namespace melonDS
 {
 
-bool GLRenderer::BuildRenderShader(u32 flags, const char* vs, const char* fs)
+bool GLRenderer::BuildRenderShader(u32 flags, const std::string& vs, const std::string& fs)
 {
     char shadername[32];
-    sprintf(shadername, "RenderShader%02X", flags);
+    snprintf(shadername, sizeof(shadername), "RenderShader%02X", flags);
 
     int headerlen = strlen(kShaderHeader);
 
-    int vslen = strlen(vs);
-    int vsclen = strlen(kRenderVSCommon);
-    char* vsbuf = new char[headerlen + vsclen + vslen + 1];
-    strcpy(&vsbuf[0], kShaderHeader);
-    strcpy(&vsbuf[headerlen], kRenderVSCommon);
-    strcpy(&vsbuf[headerlen + vsclen], vs);
+    std::string vsbuf;
+    vsbuf += kShaderHeader;
+    vsbuf += kRenderVSCommon;
+    vsbuf += vs;
 
-    int fslen = strlen(fs);
-    int fsclen = strlen(kRenderFSCommon);
-    char* fsbuf = new char[headerlen + fsclen + fslen + 1];
-    strcpy(&fsbuf[0], kShaderHeader);
-    strcpy(&fsbuf[headerlen], kRenderFSCommon);
-    strcpy(&fsbuf[headerlen + fsclen], fs);
+    std::string fsbuf;
+    fsbuf += kShaderHeader;
+    fsbuf += kRenderFSCommon;
+    fsbuf += fs;
 
-    bool ret = OpenGL::BuildShaderProgram(vsbuf, fsbuf, RenderShader[flags], shadername);
-
-    delete[] vsbuf;
-    delete[] fsbuf;
+    GLuint prog;
+    bool ret = OpenGL::CompileVertexFragmentProgram(prog,
+        vsbuf, fsbuf,
+        shadername,
+        {{"vPosition", 0}, {"vColor", 1}, {"vTexcoord", 2}, {"vPolygonAttr", 3}},
+        {{"oColor", 0}, {"oAttr", 1}});
 
     if (!ret) return false;
-
-    GLuint prog = RenderShader[flags][2];
-
-    glBindAttribLocation(prog, 0, "vPosition");
-    glBindAttribLocation(prog, 1, "vColor");
-    glBindAttribLocation(prog, 2, "vTexcoord");
-    glBindAttribLocation(prog, 3, "vPolygonAttr");
-    glBindFragDataLocation(prog, 0, "oColor");
-    glBindFragDataLocation(prog, 1, "oAttr");
-
-    if (!OpenGL::LinkShaderProgram(RenderShader[flags]))
-        return false;
 
     GLint uni_id = glGetUniformBlockIndex(prog, "uConfig");
     glUniformBlockBinding(prog, uni_id, 0);
@@ -78,13 +64,15 @@ bool GLRenderer::BuildRenderShader(u32 flags, const char* vs, const char* fs)
     uni_id = glGetUniformLocation(prog, "TexPalMem");
     glUniform1i(uni_id, 1);
 
+    RenderShader[flags] = prog;
+
     return true;
 }
 
 void GLRenderer::UseRenderShader(u32 flags)
 {
     if (CurShaderID == flags) return;
-    glUseProgram(RenderShader[flags][2]);
+    glUseProgram(RenderShader[flags]);
     CurShaderID = flags;
 }
 
@@ -97,7 +85,9 @@ void SetupDefaultTexParams(GLuint tex)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 }
 
-GLRenderer::GLRenderer() noexcept : Renderer3D(true)
+GLRenderer::GLRenderer(GLCompositor&& compositor) noexcept :
+    Renderer3D(true),
+    CurGLCompositor(std::move(compositor))
 {
     // GLRenderer::New() will be used to actually initialize the renderer;
     // The various glDelete* functions silently ignore invalid IDs,
@@ -108,9 +98,14 @@ std::unique_ptr<GLRenderer> GLRenderer::New() noexcept
 {
     assert(glEnable != nullptr);
 
+    std::optional<GLCompositor> compositor =  GLCompositor::New();
+    if (!compositor)
+        return nullptr;
+
     // Will be returned if the initialization succeeds,
     // or cleaned up via RAII if it fails.
-    std::unique_ptr<GLRenderer> result = std::unique_ptr<GLRenderer>(new GLRenderer());
+    std::unique_ptr<GLRenderer> result = std::unique_ptr<GLRenderer>(new GLRenderer(std::move(*compositor)));
+    compositor = std::nullopt;
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_STENCIL_TEST);
@@ -118,21 +113,17 @@ std::unique_ptr<GLRenderer> GLRenderer::New() noexcept
     glDepthRange(0, 1);
     glClearDepth(1.0);
 
-
-    if (!OpenGL::BuildShaderProgram(kClearVS, kClearFS, result->ClearShaderPlain, "ClearShader"))
+    if (!OpenGL::CompileVertexFragmentProgram(result->ClearShaderPlain,
+            kClearVS, kClearFS,
+            "ClearShader",
+            {{"vPosition", 0}},
+            {{"oColor", 0}, {"oAttr", 1}}))
         return nullptr;
 
-    glBindAttribLocation(result->ClearShaderPlain[2], 0, "vPosition");
-    glBindFragDataLocation(result->ClearShaderPlain[2], 0, "oColor");
-    glBindFragDataLocation(result->ClearShaderPlain[2], 1, "oAttr");
-
-    if (!OpenGL::LinkShaderProgram(result->ClearShaderPlain))
-        return nullptr;
-
-    result->ClearUniformLoc[0] = glGetUniformLocation(result->ClearShaderPlain[2], "uColor");
-    result->ClearUniformLoc[1] = glGetUniformLocation(result->ClearShaderPlain[2], "uDepth");
-    result->ClearUniformLoc[2] = glGetUniformLocation(result->ClearShaderPlain[2], "uOpaquePolyID");
-    result->ClearUniformLoc[3] = glGetUniformLocation(result->ClearShaderPlain[2], "uFogFlag");
+    result->ClearUniformLoc[0] = glGetUniformLocation(result->ClearShaderPlain, "uColor");
+    result->ClearUniformLoc[1] = glGetUniformLocation(result->ClearShaderPlain, "uDepth");
+    result->ClearUniformLoc[2] = glGetUniformLocation(result->ClearShaderPlain, "uOpaquePolyID");
+    result->ClearUniformLoc[3] = glGetUniformLocation(result->ClearShaderPlain, "uFogFlag");
 
     memset(result->RenderShader, 0, sizeof(RenderShader));
 
@@ -160,42 +151,35 @@ std::unique_ptr<GLRenderer> GLRenderer::New() noexcept
     if (!result->BuildRenderShader(RenderFlag_ShadowMask | RenderFlag_WBuffer, kRenderVS_W, kRenderFS_WSM))
         return nullptr;
 
-    if (!OpenGL::BuildShaderProgram(kFinalPassVS, kFinalPassEdgeFS, result->FinalPassEdgeShader, "FinalPassEdgeShader"))
+    if (!OpenGL::CompileVertexFragmentProgram(result->FinalPassEdgeShader,
+            kFinalPassVS, kFinalPassEdgeFS,
+            "FinalPassEdgeShader",
+            {{"vPosition", 0}},
+            {{"oColor", 0}}))
+        return nullptr;
+    if (!OpenGL::CompileVertexFragmentProgram(result->FinalPassFogShader,
+            kFinalPassVS, kFinalPassFogFS,
+            "FinalPassFogShader",
+            {{"vPosition", 0}},
+            {{"oColor", 0}}))
         return nullptr;
 
-    if (!OpenGL::BuildShaderProgram(kFinalPassVS, kFinalPassFogFS, result->FinalPassFogShader, "FinalPassFogShader"))
-        return nullptr;
+    GLuint uni_id = glGetUniformBlockIndex(result->FinalPassEdgeShader, "uConfig");
+    glUniformBlockBinding(result->FinalPassEdgeShader, uni_id, 0);
 
-    glBindAttribLocation(result->FinalPassEdgeShader[2], 0, "vPosition");
-    glBindFragDataLocation(result->FinalPassEdgeShader[2], 0, "oColor");
-
-    if (!OpenGL::LinkShaderProgram(result->FinalPassEdgeShader))
-        return nullptr;
-
-    GLint uni_id = glGetUniformBlockIndex(result->FinalPassEdgeShader[2], "uConfig");
-    glUniformBlockBinding(result->FinalPassEdgeShader[2], uni_id, 0);
-
-    glUseProgram(result->FinalPassEdgeShader[2]);
-
-    uni_id = glGetUniformLocation(result->FinalPassEdgeShader[2], "DepthBuffer");
+    glUseProgram(result->FinalPassEdgeShader);
+    uni_id = glGetUniformLocation(result->FinalPassEdgeShader, "DepthBuffer");
     glUniform1i(uni_id, 0);
-    uni_id = glGetUniformLocation(result->FinalPassEdgeShader[2], "AttrBuffer");
+    uni_id = glGetUniformLocation(result->FinalPassEdgeShader, "AttrBuffer");
     glUniform1i(uni_id, 1);
 
-    glBindAttribLocation(result->FinalPassFogShader[2], 0, "vPosition");
-    glBindFragDataLocation(result->FinalPassFogShader[2], 0, "oColor");
+    uni_id = glGetUniformBlockIndex(result->FinalPassFogShader, "uConfig");
+    glUniformBlockBinding(result->FinalPassFogShader, uni_id, 0);
 
-    if (!OpenGL::LinkShaderProgram(result->FinalPassFogShader))
-        return nullptr;
-
-    uni_id = glGetUniformBlockIndex(result->FinalPassFogShader[2], "uConfig");
-    glUniformBlockBinding(result->FinalPassFogShader[2], uni_id, 0);
-
-    glUseProgram(result->FinalPassFogShader[2]);
-
-    uni_id = glGetUniformLocation(result->FinalPassFogShader[2], "DepthBuffer");
+    glUseProgram(result->FinalPassFogShader);
+    uni_id = glGetUniformLocation(result->FinalPassFogShader, "DepthBuffer");
     glUniform1i(uni_id, 0);
-    uni_id = glGetUniformLocation(result->FinalPassFogShader[2], "AttrBuffer");
+    uni_id = glGetUniformLocation(result->FinalPassFogShader, "AttrBuffer");
     glUniform1i(uni_id, 1);
 
 
@@ -248,29 +232,26 @@ std::unique_ptr<GLRenderer> GLRenderer::New() noexcept
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, result->IndexBufferID);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(IndexBuffer), nullptr, GL_DYNAMIC_DRAW);
 
-    glGenFramebuffers(4, &result->FramebufferID[0]);
-    glBindFramebuffer(GL_FRAMEBUFFER, result->FramebufferID[0]);
-
-    glGenTextures(8, &result->FramebufferTex[0]);
-    result->FrontBuffer = 0;
+    glGenFramebuffers(1, &result->MainFramebuffer);
 
     // color buffers
-    SetupDefaultTexParams(result->FramebufferTex[0]);
-    SetupDefaultTexParams(result->FramebufferTex[1]);
+    glGenTextures(1, &result->ColorBufferTex);
+    SetupDefaultTexParams(result->ColorBufferTex);
 
     // depth/stencil buffer
-    SetupDefaultTexParams(result->FramebufferTex[4]);
-    SetupDefaultTexParams(result->FramebufferTex[6]);
+    glGenTextures(1, &result->DepthBufferTex);
+    SetupDefaultTexParams(result->DepthBufferTex);
 
     // attribute buffer
     // R: opaque polyID (for edgemarking)
     // G: edge flag
     // B: fog flag
-    SetupDefaultTexParams(result->FramebufferTex[5]);
-    SetupDefaultTexParams(result->FramebufferTex[7]);
+    glGenTextures(1, &result->AttrBufferTex);
+    SetupDefaultTexParams(result->AttrBufferTex);
 
     // downscale framebuffer for display capture (always 256x192)
-    SetupDefaultTexParams(result->FramebufferTex[3]);
+    glGenTextures(1, &result->DownScaleBufferTex);
+    SetupDefaultTexParams(result->DownScaleBufferTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
     glEnable(GL_BLEND);
@@ -308,8 +289,12 @@ GLRenderer::~GLRenderer()
     glDeleteTextures(1, &TexMemID);
     glDeleteTextures(1, &TexPalMemID);
 
-    glDeleteFramebuffers(4, &FramebufferID[0]);
-    glDeleteTextures(8, &FramebufferTex[0]);
+    glDeleteFramebuffers(1, &MainFramebuffer);
+    glDeleteFramebuffers(1, &DownscaleFramebuffer);
+    glDeleteTextures(1, &ColorBufferTex);
+    glDeleteTextures(1, &DepthBufferTex);
+    glDeleteTextures(1, &AttrBufferTex);
+    glDeleteTextures(1, &DownScaleBufferTex);
 
     glDeleteVertexArrays(1, &VertexArrayID);
     glDeleteBuffers(1, &VertexBufferID);
@@ -320,58 +305,58 @@ GLRenderer::~GLRenderer()
 
     for (int i = 0; i < 16; i++)
     {
-        if (!RenderShader[i][2]) continue;
-        OpenGL::DeleteShaderProgram(RenderShader[i]);
+        if (!RenderShader[i]) continue;
+        glDeleteProgram(RenderShader[i]);
     }
 }
 
-void GLRenderer::Reset()
+void GLRenderer::Reset(GPU& gpu)
 {
+    // This is where the compositor's Reset() method would be called,
+    // except there's no such method right now.
 }
 
-void GLRenderer::SetRenderSettings(GPU::RenderSettings& settings)
+void GLRenderer::SetBetterPolygons(bool betterpolygons) noexcept
 {
-    int scale = settings.GL_ScaleFactor;
+    SetRenderSettings(betterpolygons, ScaleFactor);
+}
 
+void GLRenderer::SetScaleFactor(int scale) noexcept
+{
+    SetRenderSettings(BetterPolygons, scale);
+}
+
+
+void GLRenderer::SetRenderSettings(bool betterpolygons, int scale) noexcept
+{
+    if (betterpolygons == BetterPolygons && scale == ScaleFactor)
+        return;
+
+    CurGLCompositor.SetScaleFactor(scale);
     ScaleFactor = scale;
-    BetterPolygons = settings.GL_BetterPolygons;
+    BetterPolygons = betterpolygons;
 
     ScreenW = 256 * scale;
     ScreenH = 192 * scale;
 
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[0]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ScreenW, ScreenH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[1]);
+    glBindTexture(GL_TEXTURE_2D, ColorBufferTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, ScreenW, ScreenH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[4]);
+    glBindTexture(GL_TEXTURE_2D, DepthBufferTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, ScreenW, ScreenH, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[5]);
+    glBindTexture(GL_TEXTURE_2D, AttrBufferTex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ScreenW, ScreenH, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[6]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, ScreenW, ScreenH, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[7]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ScreenW, ScreenH, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferID[3]);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, FramebufferTex[3], 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, DownscaleFramebuffer);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, DownScaleBufferTex, 0);
 
     GLenum fbassign[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
 
-    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferID[0]);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, FramebufferTex[0], 0);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, FramebufferTex[4], 0);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, FramebufferTex[5], 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, MainFramebuffer);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, ColorBufferTex, 0);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, DepthBufferTex, 0);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, AttrBufferTex, 0);
     glDrawBuffers(2, fbassign);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferID[1]);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, FramebufferTex[1], 0);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, FramebufferTex[6], 0);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, FramebufferTex[7], 0);
-    glDrawBuffers(2, fbassign);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferID[0]);
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, PixelbufferID);
     glBufferData(GL_PIXEL_PACK_BUFFER, 256*192*4, NULL, GL_DYNAMIC_READ);
@@ -383,7 +368,7 @@ void GLRenderer::SetRenderSettings(GPU::RenderSettings& settings)
 }
 
 
-void GLRenderer::SetupPolygon(GLRenderer::RendererPolygon* rp, Polygon* polygon)
+void GLRenderer::SetupPolygon(GLRenderer::RendererPolygon* rp, Polygon* polygon) const
 {
     rp->PolyData = polygon;
 
@@ -429,7 +414,7 @@ void GLRenderer::SetupPolygon(GLRenderer::RendererPolygon* rp, Polygon* polygon)
     }
 }
 
-u32* GLRenderer::SetupVertex(Polygon* poly, int vid, Vertex* vtx, u32 vtxattr, u32* vptr)
+u32* GLRenderer::SetupVertex(const Polygon* poly, int vid, const Vertex* vtx, u32 vtxattr, u32* vptr) const
 {
     u32 z = poly->FinalZ[vid];
     u32 w = poly->FinalW[vid];
@@ -712,18 +697,18 @@ void GLRenderer::BuildPolygons(GLRenderer::RendererPolygon* polygons, int npolys
     NumEdgeIndices = eidx - EdgeIndicesOffset;
 }
 
-int GLRenderer::RenderSinglePolygon(int i)
+int GLRenderer::RenderSinglePolygon(int i) const
 {
-    RendererPolygon* rp = &PolygonList[i];
+    const RendererPolygon* rp = &PolygonList[i];
 
     glDrawElements(rp->PrimType, rp->NumIndices, GL_UNSIGNED_SHORT, (void*)(uintptr_t)(rp->IndicesOffset * 2));
 
     return 1;
 }
 
-int GLRenderer::RenderPolygonBatch(int i)
+int GLRenderer::RenderPolygonBatch(int i) const
 {
-    RendererPolygon* rp = &PolygonList[i];
+    const RendererPolygon* rp = &PolygonList[i];
     GLuint primtype = rp->PrimType;
     u32 key = rp->RenderKey;
     int numpolys = 0;
@@ -731,7 +716,7 @@ int GLRenderer::RenderPolygonBatch(int i)
 
     for (int iend = i; iend < NumFinalPolys; iend++)
     {
-        RendererPolygon* cur_rp = &PolygonList[iend];
+        const RendererPolygon* cur_rp = &PolygonList[iend];
         if (cur_rp->PrimType != primtype) break;
         if (cur_rp->RenderKey != key) break;
 
@@ -743,16 +728,16 @@ int GLRenderer::RenderPolygonBatch(int i)
     return numpolys;
 }
 
-int GLRenderer::RenderPolygonEdgeBatch(int i)
+int GLRenderer::RenderPolygonEdgeBatch(int i) const
 {
-    RendererPolygon* rp = &PolygonList[i];
+    const RendererPolygon* rp = &PolygonList[i];
     u32 key = rp->RenderKey;
     int numpolys = 0;
     u32 numindices = 0;
 
     for (int iend = i; iend < NumFinalPolys; iend++)
     {
-        RendererPolygon* cur_rp = &PolygonList[iend];
+        const RendererPolygon* cur_rp = &PolygonList[iend];
         if (cur_rp->RenderKey != key) break;
 
         numpolys++;
@@ -763,14 +748,14 @@ int GLRenderer::RenderPolygonEdgeBatch(int i)
     return numpolys;
 }
 
-void GLRenderer::RenderSceneChunk(int y, int h)
+void GLRenderer::RenderSceneChunk(const GPU3D& gpu3d, int y, int h)
 {
     u32 flags = 0;
-    if (RenderPolygonRAM[0]->WBuffer) flags |= RenderFlag_WBuffer;
+    if (gpu3d.RenderPolygonRAM[0]->WBuffer) flags |= RenderFlag_WBuffer;
 
     if (h != 192) glScissor(0, y<<ScaleFactor, 256<<ScaleFactor, h<<ScaleFactor);
 
-    GLboolean fogenable = (RenderDispCnt & (1<<7)) ? GL_TRUE : GL_FALSE;
+    GLboolean fogenable = (gpu3d.RenderDispCnt & (1<<7)) ? GL_TRUE : GL_FALSE;
 
     // TODO: proper 'equal' depth test!
     // (has margin of +-0x200 in Z-buffer mode, +-0xFF in W-buffer mode)
@@ -842,7 +827,7 @@ void GLRenderer::RenderSceneChunk(int y, int h)
     glEnable(GL_BLEND);
     glBlendEquationSeparate(GL_FUNC_ADD, GL_MAX);
 
-    if (RenderDispCnt & (1<<3))
+    if (gpu3d.RenderDispCnt & (1<<3))
         glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
     else
         glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ONE);
@@ -854,7 +839,7 @@ void GLRenderer::RenderSceneChunk(int y, int h)
         // pass 2: if needed, render translucent pixels that are against background pixels
         // when background alpha is zero, those need to be rendered with blending disabled
 
-        if ((RenderClearAttr1 & 0x001F0000) == 0)
+        if ((gpu3d.RenderClearAttr1 & 0x001F0000) == 0)
         {
             glDisable(GL_BLEND);
 
@@ -918,7 +903,7 @@ void GLRenderer::RenderSceneChunk(int y, int h)
                     if (rp->PolyData->IsShadow)
                     {
                         // shadow against clear-plane will only pass if its polyID matches that of the clear plane
-                        u32 clrpolyid = (RenderClearAttr1 >> 24) & 0x3F;
+                        u32 clrpolyid = (gpu3d.RenderClearAttr1 >> 24) & 0x3F;
                         if (polyid != clrpolyid) { i++; continue; }
 
                         glEnable(GL_BLEND);
@@ -1066,7 +1051,7 @@ void GLRenderer::RenderSceneChunk(int y, int h)
         }
     }
 
-    if (RenderDispCnt & 0x00A0) // fog/edge enabled
+    if (gpu3d.RenderDispCnt & 0x00A0) // fog/edge enabled
     {
         glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -1081,38 +1066,38 @@ void GLRenderer::RenderSceneChunk(int y, int h)
         glStencilMask(0);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, FramebufferTex[FrontBuffer ? 6 : 4]);
+        glBindTexture(GL_TEXTURE_2D, DepthBufferTex);
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, FramebufferTex[FrontBuffer ? 7 : 5]);
+        glBindTexture(GL_TEXTURE_2D, AttrBufferTex);
 
         glBindBuffer(GL_ARRAY_BUFFER, ClearVertexBufferID);
         glBindVertexArray(ClearVertexArrayID);
 
-        if (RenderDispCnt & (1<<5))
+        if (gpu3d.RenderDispCnt & (1<<5))
         {
             // edge marking
             // TODO: depth/polyid values at screen edges
 
-            glUseProgram(FinalPassEdgeShader[2]);
+            glUseProgram(FinalPassEdgeShader);
 
             glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
             glDrawArrays(GL_TRIANGLES, 0, 2*3);
         }
 
-        if (RenderDispCnt & (1<<7))
+        if (gpu3d.RenderDispCnt & (1<<7))
         {
             // fog
 
-            glUseProgram(FinalPassFogShader[2]);
+            glUseProgram(FinalPassFogShader);
 
-            if (RenderDispCnt & (1<<6))
+            if (gpu3d.RenderDispCnt & (1<<6))
                 glBlendFuncSeparate(GL_ZERO, GL_ONE, GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_ALPHA);
             else
                 glBlendFuncSeparate(GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_ALPHA, GL_CONSTANT_COLOR, GL_ONE_MINUS_SRC_ALPHA);
 
             {
-                u32 c = RenderFogColor;
+                u32 c = gpu3d.RenderFogColor;
                 u32 r = c & 0x1F;
                 u32 g = (c >> 5) & 0x1F;
                 u32 b = (c >> 10) & 0x1F;
@@ -1127,20 +1112,20 @@ void GLRenderer::RenderSceneChunk(int y, int h)
 }
 
 
-void GLRenderer::RenderFrame()
+void GLRenderer::RenderFrame(GPU& gpu)
 {
     CurShaderID = -1;
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, FramebufferID[FrontBuffer]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, MainFramebuffer);
 
     ShaderConfig.uScreenSize[0] = ScreenW;
     ShaderConfig.uScreenSize[1] = ScreenH;
-    ShaderConfig.uDispCnt = RenderDispCnt;
+    ShaderConfig.uDispCnt = gpu.GPU3D.RenderDispCnt;
 
     for (int i = 0; i < 32; i++)
     {
-        u16 c = RenderToonTable[i];
+        u16 c = gpu.GPU3D.RenderToonTable[i];
         u32 r = c & 0x1F;
         u32 g = (c >> 5) & 0x1F;
         u32 b = (c >> 10) & 0x1F;
@@ -1152,7 +1137,7 @@ void GLRenderer::RenderFrame()
 
     for (int i = 0; i < 8; i++)
     {
-        u16 c = RenderEdgeTable[i];
+        u16 c = gpu.GPU3D.RenderEdgeTable[i];
         u32 r = c & 0x1F;
         u32 g = (c >> 5) & 0x1F;
         u32 b = (c >> 10) & 0x1F;
@@ -1163,7 +1148,7 @@ void GLRenderer::RenderFrame()
     }
 
     {
-        u32 c = RenderFogColor;
+        u32 c = gpu.GPU3D.RenderFogColor;
         u32 r = c & 0x1F;
         u32 g = (c >> 5) & 0x1F;
         u32 b = (c >> 10) & 0x1F;
@@ -1177,12 +1162,12 @@ void GLRenderer::RenderFrame()
 
     for (int i = 0; i < 34; i++)
     {
-        u8 d = RenderFogDensityTable[i];
+        u8 d = gpu.GPU3D.RenderFogDensityTable[i];
         ShaderConfig.uFogDensity[i][0] = (float)d / 127.0;
     }
 
-    ShaderConfig.uFogOffset = RenderFogOffset;
-    ShaderConfig.uFogShift = RenderFogShift;
+    ShaderConfig.uFogOffset = gpu.GPU3D.RenderFogOffset;
+    ShaderConfig.uFogShift = gpu.GPU3D.RenderFogShift;
 
     glBindBuffer(GL_UNIFORM_BUFFER, ShaderConfigUBO);
     void* unibuf = glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY);
@@ -1195,13 +1180,13 @@ void GLRenderer::RenderFrame()
     glBindTexture(GL_TEXTURE_2D, TexMemID);
     for (int i = 0; i < 4; i++)
     {
-        u32 mask = GPU::VRAMMap_Texture[i];
+        u32 mask = gpu.VRAMMap_Texture[i];
         u8* vram;
         if (!mask) continue;
-        else if (mask & (1<<0)) vram = GPU::VRAM_A;
-        else if (mask & (1<<1)) vram = GPU::VRAM_B;
-        else if (mask & (1<<2)) vram = GPU::VRAM_C;
-        else if (mask & (1<<3)) vram = GPU::VRAM_D;
+        else if (mask & (1<<0)) vram = gpu.VRAM_A;
+        else if (mask & (1<<1)) vram = gpu.VRAM_B;
+        else if (mask & (1<<2)) vram = gpu.VRAM_C;
+        else if (mask & (1<<3)) vram = gpu.VRAM_D;
 
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, i*128, 1024, 128, GL_RED_INTEGER, GL_UNSIGNED_BYTE, vram);
     }
@@ -1211,12 +1196,12 @@ void GLRenderer::RenderFrame()
     for (int i = 0; i < 6; i++)
     {
         // 6 x 16K chunks
-        u32 mask = GPU::VRAMMap_TexPal[i];
+        u32 mask = gpu.VRAMMap_TexPal[i];
         u8* vram;
         if (!mask) continue;
-        else if (mask & (1<<4)) vram = &GPU::VRAM_E[(i&3)*0x4000];
-        else if (mask & (1<<5)) vram = GPU::VRAM_F;
-        else if (mask & (1<<6)) vram = GPU::VRAM_G;
+        else if (mask & (1<<4)) vram = &gpu.VRAM_E[(i&3)*0x4000];
+        else if (mask & (1<<5)) vram = gpu.VRAM_F;
+        else if (mask & (1<<6)) vram = gpu.VRAM_G;
 
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, i*8, 1024, 8, GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, vram);
     }
@@ -1238,16 +1223,16 @@ void GLRenderer::RenderFrame()
     // TODO: check whether 'clear polygon ID' affects translucent polyID
     // (for example when alpha is 1..30)
     {
-        glUseProgram(ClearShaderPlain[2]);
+        glUseProgram(ClearShaderPlain);
         glDepthFunc(GL_ALWAYS);
 
-        u32 r = RenderClearAttr1 & 0x1F;
-        u32 g = (RenderClearAttr1 >> 5) & 0x1F;
-        u32 b = (RenderClearAttr1 >> 10) & 0x1F;
-        u32 fog = (RenderClearAttr1 >> 15) & 0x1;
-        u32 a = (RenderClearAttr1 >> 16) & 0x1F;
-        u32 polyid = (RenderClearAttr1 >> 24) & 0x3F;
-        u32 z = ((RenderClearAttr2 & 0x7FFF) * 0x200) + 0x1FF;
+        u32 r = gpu.GPU3D.RenderClearAttr1 & 0x1F;
+        u32 g = (gpu.GPU3D.RenderClearAttr1 >> 5) & 0x1F;
+        u32 b = (gpu.GPU3D.RenderClearAttr1 >> 10) & 0x1F;
+        u32 fog = (gpu.GPU3D.RenderClearAttr1 >> 15) & 0x1;
+        u32 a = (gpu.GPU3D.RenderClearAttr1 >> 16) & 0x1F;
+        u32 polyid = (gpu.GPU3D.RenderClearAttr1 >> 24) & 0x3F;
+        u32 z = ((gpu.GPU3D.RenderClearAttr2 & 0x7FFF) * 0x200) + 0x1FF;
 
         glStencilFunc(GL_ALWAYS, 0xFF, 0xFF);
         glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
@@ -1266,20 +1251,20 @@ void GLRenderer::RenderFrame()
         glDrawArrays(GL_TRIANGLES, 0, 2*3);
     }
 
-    if (RenderNumPolygons)
+    if (gpu.GPU3D.RenderNumPolygons)
     {
         // render shit here
         u32 flags = 0;
-        if (RenderPolygonRAM[0]->WBuffer) flags |= RenderFlag_WBuffer;
+        if (gpu.GPU3D.RenderPolygonRAM[0]->WBuffer) flags |= RenderFlag_WBuffer;
 
         int npolys = 0;
         int firsttrans = -1;
-        for (u32 i = 0; i < RenderNumPolygons; i++)
+        for (u32 i = 0; i < gpu.GPU3D.RenderNumPolygons; i++)
         {
-            if (RenderPolygonRAM[i]->Degenerate) continue;
+            if (gpu.GPU3D.RenderPolygonRAM[i]->Degenerate) continue;
 
-            SetupPolygon(&PolygonList[npolys], RenderPolygonRAM[i]);
-            if (firsttrans < 0 && RenderPolygonRAM[i]->Translucent)
+            SetupPolygon(&PolygonList[npolys], gpu.GPU3D.RenderPolygonRAM[i]);
+            if (firsttrans < 0 && gpu.GPU3D.RenderPolygonRAM[i]->Translucent)
                 firsttrans = npolys;
 
             npolys++;
@@ -1296,25 +1281,36 @@ void GLRenderer::RenderFrame()
         glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, NumIndices * 2, IndexBuffer);
         glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, EdgeIndicesOffset * 2, NumEdgeIndices * 2, IndexBuffer + EdgeIndicesOffset);
 
-        RenderSceneChunk(0, 192);
+        RenderSceneChunk(gpu.GPU3D, 0, 192);
     }
+}
 
-    FrontBuffer = FrontBuffer ? 0 : 1;
+void GLRenderer::Stop(const GPU& gpu)
+{
+    CurGLCompositor.Stop(gpu);
 }
 
 void GLRenderer::PrepareCaptureFrame()
 {
-    // TODO: make sure this picks the right buffer when doing antialiasing
-    int original_fb = FrontBuffer^1;
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, FramebufferID[original_fb]);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, MainFramebuffer);
     glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, FramebufferID[3]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, DownscaleFramebuffer);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glBlitFramebuffer(0, 0, ScreenW, ScreenH, 0, 0, 256, 192, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, FramebufferID[3]);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, PixelbufferID);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, DownscaleFramebuffer);
     glReadPixels(0, 0, 256, 192, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+}
+
+void GLRenderer::Blit(const GPU& gpu)
+{
+    CurGLCompositor.RenderFrame(gpu, *this);
+}
+
+void GLRenderer::BindOutputTexture(int buffer)
+{
+    CurGLCompositor.BindOutputTexture(buffer);
 }
 
 u32* GLRenderer::GetLine(int line)
@@ -1323,6 +1319,7 @@ u32* GLRenderer::GetLine(int line)
 
     if (line == 0)
     {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, PixelbufferID);
         u8* data = (u8*)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
         if (data) memcpy(&Framebuffer[stride*0], data, 4*stride*192);
         glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -1342,7 +1339,7 @@ u32* GLRenderer::GetLine(int line)
 
 void GLRenderer::SetupAccelFrame()
 {
-    glBindTexture(GL_TEXTURE_2D, FramebufferTex[FrontBuffer]);
+    glBindTexture(GL_TEXTURE_2D, ColorBufferTex);
 }
 
 }

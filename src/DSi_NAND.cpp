@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2022 melonDS team
+    Copyright 2016-2023 melonDS team
 
     This file is part of melonDS.
 
@@ -30,9 +30,9 @@
 
 #include "fatfs/ff.h"
 
-using namespace Platform;
+using namespace melonDS::Platform;
 
-namespace DSi_NAND
+namespace melonDS::DSi_NAND
 {
 
 NANDImage::NANDImage(Platform::FileHandle* nandfile, const DSiKey& es_keyY) noexcept : NANDImage(nandfile, es_keyY.data())
@@ -132,6 +132,9 @@ NANDImage& NANDImage::operator=(NANDImage&& other) noexcept
 {
     if (this != &other)
     {
+        if (CurFile)
+            CloseFile(CurFile);
+
         CurFile = other.CurFile;
         eMMC_CID = other.eMMC_CID;
         ConsoleID = other.ConsoleID;
@@ -364,7 +367,7 @@ bool NANDImage::ESEncrypt(u8* data, u32 len) const
     return true;
 }
 
-bool NANDImage::ESDecrypt(u8* data, u32 len)
+bool NANDImage::ESDecrypt(u8* data, u32 len) const
 {
     AES_ctx ctx;
     u8 iv[16];

@@ -3,6 +3,7 @@
 #define GDBSTUB_H_
 
 #include <stddef.h>
+#include <sys/types.h>
 #include <map>
 #include <vector>
 
@@ -13,6 +14,7 @@
 namespace Gdb
 {
 
+using namespace melonDS;
 enum class TgtStatus
 {
 	NoEvent,
