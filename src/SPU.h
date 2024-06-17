@@ -237,7 +237,7 @@ public:
 
     void Mix(u32 dummy);
 
-    u32 ReadOutput(s16* data);
+    u32 ReadOutput(s16* data, u32 maxSamples);
 
     u8 Read8(u32 addr);
     u16 Read16(u32 addr);

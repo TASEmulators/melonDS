@@ -956,15 +956,15 @@ void SPU::Mix(u32 dummy)
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
 }
 
-u32 SPU::ReadOutput(s16* data)
+u32 SPU::ReadOutput(s16* data, u32 maxSamples)
 {
     blip_end_frame(BlipL, BlipAccumulate);
     blip_end_frame(BlipR, BlipAccumulate);
     BlipAccumulate = 0;
     u32 samples = blip_samples_avail(BlipL);
-    blip_read_samples(BlipL, data + 0, samples, true);
-    blip_read_samples(BlipR, data + 1, samples, true);
-    return samples;
+    blip_read_samples(BlipL, data + 0, maxSamples, true);
+    blip_read_samples(BlipR, data + 1, maxSamples, true);
+    return std::min(samples, maxSamples);
 }
 
 
