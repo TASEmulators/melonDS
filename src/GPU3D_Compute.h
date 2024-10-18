@@ -188,7 +188,7 @@ private:
     };
 
     static const int MaxYSpanSetups = 6144*2;
-    std::vector<SetupIndices> YSpanIndices;
+    std::array<SetupIndices, 64*2048*16> YSpanIndices;
     SpanSetupY YSpanSetups[MaxYSpanSetups];
     RenderPolygon RenderPolygons[2048];
 

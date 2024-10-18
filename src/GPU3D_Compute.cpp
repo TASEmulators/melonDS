@@ -345,7 +345,7 @@ void ComputeRenderer::SetRenderSettings(int scale, bool highResolutionCoordinate
     // eh those are pretty bad guesses
     // though real hw shouldn't be eable to render all 2048 polygons on every line either
     int maxYSpanIndices = 64*2048 * ScaleFactor;
-    YSpanIndices.resize(maxYSpanIndices);
+    //YSpanIndices.resize(maxYSpanIndices);
 
     glBindBuffer(GL_TEXTURE_BUFFER, YSpanIndicesTextureMemory);
     glBufferData(GL_TEXTURE_BUFFER, maxYSpanIndices*2*4, nullptr, GL_DYNAMIC_DRAW);

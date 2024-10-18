@@ -11,6 +11,8 @@
 #define XXH_STATIC_LINKING_ONLY
 #include "xxhash/xxhash.h"
 
+#include <InvisiblePoolAllocator.h>
+
 namespace melonDS
 {
 
@@ -295,12 +297,12 @@ private:
         u64 TextureHash[2];
         u64 TexPalHash;
     };
-    std::unordered_map<u64, TexCacheEntry> Cache;
+    std::unordered_map<u64, TexCacheEntry, std::hash<u64>, std::equal_to<u64>, InvisiblePoolAllocator<std::pair<const u64, TexCacheEntry>>> Cache;
 
     TexLoaderT TexLoader;
 
-    std::vector<TexArrayEntry> FreeTextures[8][8];
-    std::vector<TexHandleT> TexArrays[8][8];
+    std::vector<TexArrayEntry, InvisiblePoolAllocator<TexArrayEntry>> FreeTextures[8][8];
+    std::vector<TexHandleT, InvisiblePoolAllocator<TexHandleT>> TexArrays[8][8];
 
     u32 DecodingBuffer[1024*1024];
 };
