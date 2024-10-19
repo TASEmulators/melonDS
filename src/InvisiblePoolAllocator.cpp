@@ -1,6 +1,8 @@
 // based on https://github.com/eliben/code-for-blog/blob/22821a6/2008/memmgr/memmgr.c (public domain)
 
 #include "InvisiblePoolAllocator.h"
+
+#include <cstdint>
 #include <emulibc.h>
 
 #define MIN_INVISIBLE_POOL_ALLOC_QUANTAS 16
@@ -48,7 +50,7 @@ static invisible_mem_header_t* get_invisible_mem_from_pool(std::size_t num_quant
 	}
 	else
 	{
-		return 0;
+		return nullptr;
 	}
 
 	return invisible_free_p;
@@ -69,7 +71,7 @@ void* invisible_pool_alloc(std::size_t num_bytes)
 
 	// First alloc call, and no free list yet?
 	// Use 'invisible_mem_base' for an initial denegerate block of size 0, which points to itself
-	if ((prev_p = invisible_free_p) == 0)
+	if ((prev_p = invisible_free_p) == nullptr)
 	{
 		invisible_mem_base.s.next = invisible_free_p = prev_p = &invisible_mem_base;
 		invisible_mem_base.s.size = 0;
@@ -102,9 +104,9 @@ void* invisible_pool_alloc(std::size_t num_bytes)
 		// If the call to get_invisible_mem_from_pool doesn't succeed, we've run out of memory
 		else if (p == invisible_free_p)
 		{
-			if ((p = get_invisible_mem_from_pool(num_quantas)) == 0)
+			if ((p = get_invisible_mem_from_pool(num_quantas)) == nullptr)
 			{
-				return 0;
+				return nullptr;
 			}
 		}
 	}

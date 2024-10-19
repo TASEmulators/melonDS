@@ -24,20 +24,21 @@
 
 #include "FrontendUtil.h"
 
+#include <emulibc.h>
 
 namespace Frontend
 {
 
-float TopScreenMtx[6];
-float BotScreenMtx[6];
-float HybScreenMtx[6];
-float TouchMtx[6];
-float HybTouchMtx[6];
-bool TopEnable;
-bool BotEnable;
-bool HybEnable;
-int HybScreen;
-int HybPrevTouchScreen; // 0:unknown, 1:buttom screen, 2:hybrid screen
+ECL_INVISIBLE float TopScreenMtx[6];
+ECL_INVISIBLE float BotScreenMtx[6];
+ECL_INVISIBLE float HybScreenMtx[6];
+ECL_INVISIBLE float TouchMtx[6];
+ECL_INVISIBLE float HybTouchMtx[6];
+ECL_INVISIBLE bool TopEnable;
+ECL_INVISIBLE bool BotEnable;
+ECL_INVISIBLE bool HybEnable;
+ECL_INVISIBLE int HybScreen;
+ECL_INVISIBLE int HybPrevTouchScreen; // 0:unknown, 1:buttom screen, 2:hybrid screen
 
 void M23_Identity(float* m)
 {
