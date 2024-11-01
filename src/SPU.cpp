@@ -201,8 +201,8 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
     },
     Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto))
 {
-    BlipL = blip_new(1024);
-    BlipR = blip_new(1024);
+    BlipL = blip_new(4096);
+    BlipR = blip_new(4096);
     blip_set_rates(BlipL, 33513982, 44100);
     blip_set_rates(BlipR, 33513982, 44100);
 
@@ -952,6 +952,8 @@ void SPU::Mix(u32 dummy)
     }
 
     BlipAccumulate += 1024;
+    // prevent blip from gaining too many samples
+    if (BlipAccumulate > 1024 * 9119) BlipAccumulate = 1024 * 9119;
 
     NDS.ScheduleEvent(Event_SPU, true, 1024, 0, 0);
 }
