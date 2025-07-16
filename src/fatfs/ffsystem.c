@@ -106,15 +106,10 @@ void ff_rel_grant (
 
 DWORD get_fattime(void)
 {
-    // TODO: return melonDS time instead of RTC??
-
-    time_t timestamp = time(NULL);
+    // Jan 1, 2000
+    time_t timestamp = 946684800000ULL;
     struct tm timedata;
-#if defined(_MSC_VER)
-    localtime_s(&timedata, &timestamp);
-#else
-    localtime_r(&timestamp, &timedata);
-#endif
+    gmtime_r(&timestamp, &timedata);
 
     DWORD ret;
     ret  = (timedata.tm_sec >> 1);
