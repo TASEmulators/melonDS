@@ -694,6 +694,40 @@ bool NANDMount::ImportFile(const char* path, const char* in)
     return true;
 }
 
+bool NANDMount::ExportFile(const char* path, std::vector<u8>& data)
+{
+    FF_FIL file;
+    FRESULT res;
+
+    res = f_open(&file, path, FA_OPEN_EXISTING | FA_READ);
+    if (res != FR_OK)
+        return false;
+
+    u32 len = f_size(&file);
+
+    data.resize(len);
+
+    u8 buf[0x1000];
+    for (u32 i = 0; i < len; i += 0x1000)
+    {
+        u32 blocklen;
+        if ((i + 0x1000) > len)
+            blocklen = len - i;
+        else
+            blocklen = 0x1000;
+
+        u32 nread;
+        f_read(&file, buf, blocklen, &nread);
+        memcpy(&data[i], buf, blocklen);
+    }
+
+    f_close(&file);
+
+    Log(LogLevel::Debug, "Exported file from %s to memory\n", path);
+
+    return true;
+}
+
 bool NANDMount::ExportFile(const char* path, const char* out)
 {
     FF_FIL file;

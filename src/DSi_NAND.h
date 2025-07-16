@@ -65,9 +65,11 @@ public:
     [[nodiscard]] u64 GetLength() const noexcept { return Length; }
 
     explicit operator bool() const { return CurFile != nullptr; }
+
+    void SetupFATCrypto(AES_ctx* ctx, u32 ctr);
+
 private:
     friend class NANDMount;
-    void SetupFATCrypto(AES_ctx* ctx, u32 ctr);
     u32 ReadFATBlock(u64 addr, u32 len, u8* buf);
     u32 WriteFATBlock(u64 addr, u32 len, const u8* buf);
     bool ESEncrypt(u8* data, u32 len) const;
@@ -116,6 +118,7 @@ public:
 
     bool ImportFile(const char* path, const u8* data, size_t len);
     bool ImportFile(const char* path, const char* in);
+    bool ExportFile(const char* path, std::vector<u8>& data);
     bool ExportFile(const char* path, const char* out);
     void RemoveFile(const char* path);
     void RemoveDir(const char* path);
