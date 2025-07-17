@@ -107,7 +107,7 @@ void ff_rel_grant (
 DWORD get_fattime(void)
 {
     // Jan 1, 2000
-    time_t timestamp = 946684800000ULL;
+    time_t timestamp = 946684800;
     struct tm timedata;
     gmtime_r(&timestamp, &timedata);
 
