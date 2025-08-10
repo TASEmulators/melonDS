@@ -118,6 +118,7 @@ DRESULT disk_write (
 	if (!WriteCb) return RES_ERROR;
 
 	UINT res = WriteCb(buff, sector, count);
+	fprintf(stderr, "disk_write call %d / %d / %d\r\n", sector, count, res);
 	if (res != count) return RES_ERROR;
 	return RES_OK;
 }
