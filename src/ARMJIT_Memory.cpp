@@ -357,6 +357,7 @@ void ARMJIT_Memory::Mapping::Unmap(int region, melonDS::NDS& nds) noexcept
         }
     }
 
+#ifndef WATERBOX
 #ifndef __SWITCH__
 #ifndef _WIN32
     u32 dtcmEnd = dtcmStart + dtcmSize;
@@ -384,10 +385,12 @@ void ARMJIT_Memory::Mapping::Unmap(int region, melonDS::NDS& nds) noexcept
         assert(succeded);
     }
 #endif
+#endif
 }
 
 void ARMJIT_Memory::SetCodeProtection(int region, u32 offset, bool protect) noexcept
 {
+#ifndef WATERBOX
     offset &= ~0xFFF;
     //printf("set code protection %d %x %d\n", region, offset, protect);
 
@@ -421,6 +424,7 @@ void ARMJIT_Memory::SetCodeProtection(int region, u32 offset, bool protect) noex
         SetCodeProtectionRange(effectiveAddr, 0x1000, mapping.Num, protect ? 1 : 2);
 #endif
     }
+#endif
 }
 
 void ARMJIT_Memory::RemapDTCM(u32 newBase, u32 newSize) noexcept
@@ -647,7 +651,12 @@ const u64 AddrSpaceSize = 0x100000000;
 
 ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
 {
-#if defined(__SWITCH__)
+#if defined(WATERBOX)
+    // fastmem is unsupported in waterbox
+    FastMem9Start = nullptr;
+    FastMem7Start = nullptr;
+    MemoryBase = new u8[MemoryTotalSize];
+#elif defined(__SWITCH__)
     MemoryBase = (u8*)aligned_alloc(0x1000, MemoryTotalSize);
     virtmemLock();
     MemoryBaseCodeMem = (u8*)virtmemFindCodeMemory(MemoryTotalSize, 0x1000);
@@ -748,7 +757,9 @@ ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
 
 ARMJIT_Memory::~ARMJIT_Memory() noexcept
 {
-#if defined(__SWITCH__)
+#if defined(WATERBOX)
+    delete[] MemoryBase;
+#elif defined(__SWITCH__)
     virtmemLock();
     if (FastMem9Reservation)
         virtmemRemoveReservation(FastMem9Reservation);
