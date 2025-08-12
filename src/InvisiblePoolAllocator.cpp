@@ -28,7 +28,7 @@ ECL_INVISIBLE static invisible_mem_header_t invisible_mem_base;
 ECL_INVISIBLE static invisible_mem_header_t* invisible_free_p;
 
 // Static invisible pool for new allocations
-ECL_INVISIBLE static std::uint8_t invisible_pool[INVISIBLE_POOL_SIZE];
+ECL_INVISIBLE static std::uint8_t* invisible_pool;
 ECL_INVISIBLE static std::size_t invisible_pool_free_pos;
 
 static invisible_mem_header_t* get_invisible_mem_from_pool(std::size_t num_quantas)
@@ -62,6 +62,15 @@ static invisible_mem_header_t* get_invisible_mem_from_pool(std::size_t num_quant
 // The pointer returned to the user points to the free space within the block, which begins one quanta after the header.
 void* invisible_pool_alloc(std::size_t num_bytes)
 {
+	if (invisible_pool == nullptr)
+	{
+		invisible_pool = alloc_invisible<std::uint8_t>(INVISIBLE_POOL_SIZE);
+		if (invisible_pool == nullptr)
+		{
+			return nullptr;
+		}
+	}
+
 	invisible_mem_header_t* p;
 	invisible_mem_header_t* prev_p;
 
