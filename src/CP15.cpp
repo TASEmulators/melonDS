@@ -809,7 +809,7 @@ u32 ARMv5::CodeRead32(u32 addr, bool branch)
 
 void ARMv5::DataRead8(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr);
+    MAYBE_CALLBACK(ReadCallback, addr, 0);
 
     if (!(PU_Map[addr>>12] & 0x01))
     {
@@ -838,7 +838,7 @@ void ARMv5::DataRead8(u32 addr, u32* val)
 
 void ARMv5::DataRead16(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~1);
+    MAYBE_CALLBACK(ReadCallback, addr & ~1, 0);
 
     if (!(PU_Map[addr>>12] & 0x01))
     {
@@ -869,7 +869,7 @@ void ARMv5::DataRead16(u32 addr, u32* val)
 
 void ARMv5::DataRead32(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~3);
+    MAYBE_CALLBACK(ReadCallback, addr & ~3, 0);
 
     if (!(PU_Map[addr>>12] & 0x01))
     {
@@ -900,7 +900,7 @@ void ARMv5::DataRead32(u32 addr, u32* val)
 
 void ARMv5::DataRead32S(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~3);
+    MAYBE_CALLBACK(ReadCallback, addr & ~3, 0);
 
     addr &= ~3;
 
@@ -923,7 +923,7 @@ void ARMv5::DataRead32S(u32 addr, u32* val)
 
 void ARMv5::DataWrite8(u32 addr, u8 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr);
+    MAYBE_CALLBACK(WriteCallback, addr, val);
 
     if (!(PU_Map[addr>>12] & 0x02))
     {
@@ -953,7 +953,7 @@ void ARMv5::DataWrite8(u32 addr, u8 val)
 
 void ARMv5::DataWrite16(u32 addr, u16 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~1);
+    MAYBE_CALLBACK(WriteCallback, addr & ~1, val);
 
     if (!(PU_Map[addr>>12] & 0x02))
     {
@@ -985,7 +985,7 @@ void ARMv5::DataWrite16(u32 addr, u16 val)
 
 void ARMv5::DataWrite32(u32 addr, u32 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~3);
+    MAYBE_CALLBACK(WriteCallback, addr & ~3, val);
 
     if (!(PU_Map[addr>>12] & 0x02))
     {
@@ -1017,7 +1017,7 @@ void ARMv5::DataWrite32(u32 addr, u32 val)
 
 void ARMv5::DataWrite32S(u32 addr, u32 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~3);
+    MAYBE_CALLBACK(WriteCallback, addr & ~3, val);
 
     addr &= ~3;
 
