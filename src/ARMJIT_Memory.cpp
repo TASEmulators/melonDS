@@ -772,6 +772,7 @@ bool ARMJIT_Memory::IsFastMemSupported()
 
 void ARMJIT_Memory::RegisterFaultHandler()
 {
+#ifndef WATERBOX
 #ifdef _WIN32
     ExceptionHandlerHandle = AddVectoredExceptionHandler(1, ExceptionHandler);
 
@@ -797,10 +798,12 @@ void ARMJIT_Memory::RegisterFaultHandler()
     sigaction(SIGBUS, &sa, &OldSaBus);
 #endif
 #endif
+#endif
 }
 
 void ARMJIT_Memory::UnregisterFaultHandler()
 {
+#ifndef WATERBOX
 #ifdef _WIN32
     if (ExceptionHandlerHandle)
     {
@@ -817,6 +820,7 @@ void ARMJIT_Memory::UnregisterFaultHandler()
     sigaction(SIGSEGV, &OldSaSegv, nullptr);
 #ifdef __APPLE__
     sigaction(SIGBUS, &OldSaBus, nullptr);
+#endif
 #endif
 #endif
 }
@@ -842,15 +846,13 @@ bool ARMJIT_Memory::FaultHandler(FaultDescription& faultDesc, melonDS::NDS& nds)
 
 ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
 {
-#ifdef WATERBOX
+    ARMJIT_Global::Init();
+#if defined(WATERBOX)
     // fastmem is unsupported in waterbox
     FastMem9Start = nullptr;
     FastMem7Start = nullptr;
     MemoryBase = new u8[MemoryTotalSize];
-    return;
-#endif
-    ARMJIT_Global::Init();
-#if defined(__SWITCH__)
+#elif defined(__SWITCH__)
     MemoryBase = (u8*)aligned_alloc(0x1000, MemoryTotalSize);
     virtmemLock();
     MemoryBaseCodeMem = (u8*)virtmemFindCodeMemory(MemoryTotalSize, 0x1000);
@@ -935,11 +937,9 @@ ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
 
 ARMJIT_Memory::~ARMJIT_Memory() noexcept
 {
-#ifdef WATERBOX
+#if defined(WATERBOX)
     delete[] MemoryBase;
-	return;
-#endif
-#if defined(__SWITCH__)
+#elif defined(__SWITCH__)
     virtmemLock();
     if (FastMem9Reservation)
         virtmemRemoveReservation(FastMem9Reservation);

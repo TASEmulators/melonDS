@@ -88,7 +88,7 @@ public:
     // on the bottom screen
     bool GetTouchCoords(int& x, int& y, bool clamp);
 
-private:
+//private:
     float TopScreenMtx[6];
     float BotScreenMtx[6];
     float HybScreenMtx[6];
