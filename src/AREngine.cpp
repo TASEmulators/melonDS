@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -31,7 +31,6 @@ using Platform::LogLevel;
 
 AREngine::AREngine(melonDS::NDS& nds) : NDS(nds)
 {
-    CodeFile = nullptr;
 }
 
 #define case16(x) \
@@ -59,7 +58,8 @@ void AREngine::RunCheat(const ARCode& arcode)
 
     for (;;)
     {
-        if (code >= &arcode.Code[arcode.Code.size()])
+        if (code > &arcode.Code[arcode.Code.size() - 1])
+            // If the instruction pointer is past the end of the cheat code...
             break;
 
         u32 a = *code++;
@@ -388,19 +388,12 @@ void AREngine::RunCheat(const ARCode& arcode)
 
 void AREngine::RunCheats()
 {
-    if (!CodeFile) return;
+    if (Cheats.empty()) return;
 
-    for (ARCodeCatList::iterator i = CodeFile->Categories.begin(); i != CodeFile->Categories.end(); i++)
+    for (const ARCode& code : Cheats)
     {
-        ARCodeCat& cat = *i;
-
-        for (ARCodeList::iterator j = cat.Codes.begin(); j != cat.Codes.end(); j++)
-        {
-            ARCode& code = *j;
-
-            if (code.Enabled)
-                RunCheat(code);
-        }
+        if (code.Enabled)
+            RunCheat(code);
     }
 }
 }

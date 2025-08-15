@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -30,14 +30,6 @@ class Firmware;
 
 namespace Platform
 {
-
-void Init(int argc, char** argv);
-
-/**
- * Frees all resources that were allocated in \c Init
- * or by any other \c Platform function.
- */
-void DeInit();
 
 enum StopReason {
     /**
@@ -77,20 +69,8 @@ enum StopReason {
  * Frontends should not call this directly;
  * use \c NDS::Stop instead.
  */
-void SignalStop(StopReason reason);
+void SignalStop(StopReason reason, void* userdata);
 
-/**
- * @returns The ID of the running melonDS instance if running in local multiplayer mode,
- * or 0 if not.
- */
-int InstanceID();
-
-/**
- * @returns A suffix that should be appended to all instance-specific paths
- * if running in local multiplayer mode,
- * or the empty string if not.
- */
-std::string InstanceFileSuffix();
 
 /**
  * Denotes how a file will be opened and accessed.
@@ -188,6 +168,9 @@ enum class FileSeekOrigin
  */
 struct FileHandle;
 
+// retrieves the path to a local file, without opening the file
+std::string GetLocalFilePath(const std::string& filename);
+
 // Simple fopen() wrapper that supports UTF8.
 // Can be optionally restricted to only opening a file that already exists.
 FileHandle* OpenFile(const std::string& path, FileMode mode);
@@ -273,6 +256,9 @@ Semaphore* Semaphore_Create();
 void Semaphore_Free(Semaphore* sema);
 void Semaphore_Reset(Semaphore* sema);
 void Semaphore_Wait(Semaphore* sema);
+/// Waits for the semaphore to be signaled, or until the timeout (in milliseconds) expires.
+/// If the timeout is 0, then don't wait; return immediately if the semaphore is not signaled.
+bool Semaphore_TryWait(Semaphore* sema, int timeout_ms = 0);
 void Semaphore_Post(Semaphore* sema, int count = 1);
 
 struct Mutex;
@@ -284,45 +270,45 @@ bool Mutex_TryLock(Mutex* mutex);
 
 void Sleep(u64 usecs);
 
+u64 GetMSCount();
+u64 GetUSCount();
+
 
 // functions called when the NDS or GBA save files need to be written back to storage
 // savedata and savelen are always the entire save memory buffer and its full length
 // writeoffset and writelen indicate which part of the memory was altered
-void WriteNDSSave(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen);
-void WriteGBASave(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen);
+void WriteNDSSave(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen, void* userdata);
+void WriteGBASave(const u8* savedata, u32 savelen, u32 writeoffset, u32 writelen, void* userdata);
 
 /// Called when the firmware needs to be written back to storage,
 /// after one of the supported write commands finishes execution.
 /// @param firmware The firmware that was just written.
 /// @param writeoffset The offset of the first byte that was written to firmware.
 /// @param writelen The number of bytes that were written to firmware.
-void WriteFirmware(const Firmware& firmware, u32 writeoffset, u32 writelen);
+void WriteFirmware(const Firmware& firmware, u32 writeoffset, u32 writelen, void* userdata);
 
 // called when the RTC date/time is changed and the frontend might need to take it into account
-void WriteDateTime(int year, int month, int day, int hour, int minute, int second);
+void WriteDateTime(int year, int month, int day, int hour, int minute, int second, void* userdata);
 
 
 // local multiplayer comm interface
 // packet type: DS-style TX header (12 bytes) + original 802.11 frame
-bool MP_Init();
-void MP_DeInit();
-void MP_Begin();
-void MP_End();
-int MP_SendPacket(u8* data, int len, u64 timestamp);
-int MP_RecvPacket(u8* data, u64* timestamp);
-int MP_SendCmd(u8* data, int len, u64 timestamp);
-int MP_SendReply(u8* data, int len, u64 timestamp, u16 aid);
-int MP_SendAck(u8* data, int len, u64 timestamp);
-int MP_RecvHostPacket(u8* data, u64* timestamp);
-u16 MP_RecvReplies(u8* data, u64 timestamp, u16 aidmask);
+void MP_Begin(void* userdata);
+void MP_End(void* userdata);
+int MP_SendPacket(u8* data, int len, u64 timestamp, void* userdata);
+int MP_RecvPacket(u8* data, u64* timestamp, void* userdata);
+int MP_SendCmd(u8* data, int len, u64 timestamp, void* userdata);
+int MP_SendReply(u8* data, int len, u64 timestamp, u16 aid, void* userdata);
+int MP_SendAck(u8* data, int len, u64 timestamp, void* userdata);
+int MP_RecvHostPacket(u8* data, u64* timestamp, void* userdata);
+u16 MP_RecvReplies(u8* data, u64 timestamp, u16 aidmask, void* userdata);
 
 
-// LAN comm interface
+// network comm interface
 // packet type: Ethernet (802.3)
-bool LAN_Init();
-void LAN_DeInit();
-int LAN_SendPacket(u8* data, int len);
-int LAN_RecvPacket(u8* data);
+int Net_SendPacket(u8* data, int len, void* userdata);
+int Net_RecvPacket(u8* data, void* userdata);
+using SendPacketCallback = std::function<void(const u8* data, int len)>;
 
 
 // interface for camera emulation
@@ -330,9 +316,132 @@ int LAN_RecvPacket(u8* data);
 // 0 = DSi outer camera
 // 1 = DSi inner camera
 // other values reserved for future camera addon emulation
-void Camera_Start(int num);
-void Camera_Stop(int num);
-void Camera_CaptureFrame(int num, u32* frame, int width, int height, bool yuv);
+void Camera_Start(int num, void* userdata);
+void Camera_Stop(int num, void* userdata);
+void Camera_CaptureFrame(int num, u32* frame, int width, int height, bool yuv, void* userdata);
+
+
+// microphone interface
+
+/**
+ * Starts microphone recording.
+ * The platform may use this to request access to a physical microphone.
+ * @param userdata instance user data
+ */
+void Mic_Start(void* userdata);
+
+/**
+ * Stops microphone recording.
+ * @param userdata instance user data
+ */
+void Mic_Stop(void* userdata);
+
+/**
+ * Requests input data from the microphone.
+ * @param data pointer to the destination buffer, signed 16-bit mono at 47.6 KHz
+ * @param maxlength maximum length in samples that the destination buffer can receive
+ * @return length in samples that was able to be read
+ */
+int Mic_ReadInput(s16* data, int maxlength, void* userdata);
+
+
+// interface for AAC decoding (ie. DSi DSP HLE)
+
+struct AACDecoder;
+
+/**
+ * Initializes an AAC decoder context.
+ * @return a pointer to an AAC decoder context, or NULL if initialization fails
+ */
+AACDecoder* AAC_Init();
+
+/**
+ * Deinitializes an AAC decoder context.
+ * @param dec the context to be freed
+ */
+void AAC_DeInit(AACDecoder* dec);
+
+/**
+ * Configures the AAC decoder with new parameters (sampling frequency, channels).
+ * @param dec the context to be configured
+ * @param frequency the sampling frequency
+ * @param channels the channel setup value (1=mono, 2=stereo)
+ * @return true if configuration was successful, false if not
+ */
+bool AAC_Configure(AACDecoder* dec, int frequency, int channels);
+
+/**
+ * Decodes an AAC frame.
+ * Takes a raw AAC frame, without any ADIF or ADTS headers.
+ * Output is signed PCM6, interleaved. Output length is 1024 samples.
+ * @param dec the decoder context to use
+ * @param input the AAC frame to decode
+ * @param inputlen the length of the AAC frame in bytes
+ * @param output the buffer to write decoded output into
+ * @param outputlen the length of the output buffer in bytes
+ * @return true if decoding was successful, false if not
+ */
+bool AAC_DecodeFrame(AACDecoder* dec, const void* input, int inputlen, void* output, int outputlen);
+
+
+// interface for addon inputs
+
+enum KeyType
+{
+    KeyGuitarGripGreen,
+    KeyGuitarGripRed,
+    KeyGuitarGripYellow,
+    KeyGuitarGripBlue,
+};
+
+// Check if a given key is being pressed.
+// @param type The type of the key to check.
+bool Addon_KeyDown(KeyType type, void* userdata);
+
+// Called by the DS Rumble Pak emulation to start the necessary
+// rumble effects on the connected game controller, if available.
+// @param len The duration of the controller rumble effect in milliseconds.
+void Addon_RumbleStart(u32 len, void* userdata);
+
+// Called by the DS Rumble Pak emulation to stop any necessary
+// rumble effects on the connected game controller, if available.
+void Addon_RumbleStop(void* userdata);
+
+enum MotionQueryType
+{
+    /**
+     * @brief X axis acceleration, measured in SI meters per second squared.
+     * On a DS, the X axis refers to the top screen X-axis (left ... right).
+     */
+    MotionAccelerationX,
+    /**
+     * @brief Y axis acceleration, measured in SI meters per second squared.
+     * On a DS, the Y axis refers to the top screen Y-axis (bottom ... top).
+     */
+    MotionAccelerationY,
+    /**
+     * @brief Z axis acceleration, measured in SI meters per second squared.
+     * On a DS, the Z axis refers to the axis perpendicular to the top screen (farther ... closer).
+     */
+    MotionAccelerationZ,
+    /**
+     * @brief X axis rotation, measured in radians per second.
+     */
+    MotionRotationX,
+    /**
+     * @brief Y axis rotation, measured in radians per second.
+     */
+    MotionRotationY,
+    /**
+     * @brief Z axis rotation, measured in radians per second.
+     */
+    MotionRotationZ,
+};
+
+// Called by the DS Motion Pak emulation to query the game controller's
+// aceelration and rotation, if available.
+// @param type The value being queried.
+float Addon_MotionQuery(MotionQueryType type, void* userdata);
 
 struct DynamicLibrary;
 

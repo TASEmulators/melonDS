@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -25,6 +25,8 @@
 
 namespace Ui {class DateTimeDialog; }
 class DateTimeDialog;
+
+class EmuInstance;
 
 class DateTimeDialog : public QDialog
 {
@@ -56,13 +58,14 @@ protected:
     void timerEvent(QTimerEvent* event) override;
 
 private slots:
-    void done(int r);
+    void done(int r) override;
 
     void on_chkChangeTime_clicked(bool checked);
     void on_chkResetTime_clicked(bool checked);
 
 private:
     Ui::DateTimeDialog* ui;
+    EmuInstance* emuInstance;
 
     QDateTime customTime;
 };

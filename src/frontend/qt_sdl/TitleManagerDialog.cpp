@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -23,7 +23,7 @@
 #include "types.h"
 #include "Platform.h"
 #include "Config.h"
-#include "ROMManager.h"
+#include "main.h"
 #include "DSi_NAND.h"
 
 #include "TitleManagerDialog.h"
@@ -36,13 +36,13 @@ using namespace melonDS::Platform;
 std::unique_ptr<DSi_NAND::NANDImage> TitleManagerDialog::nand = nullptr;
 TitleManagerDialog* TitleManagerDialog::currentDlg = nullptr;
 
-extern std::string EmuDirectory;
-
 
 TitleManagerDialog::TitleManagerDialog(QWidget* parent, DSi_NAND::NANDImage& image) : QDialog(parent), ui(new Ui::TitleManagerDialog), nandmount(image)
 {
     ui->setupUi(this);
     setAttribute(Qt::WA_DeleteOnClose);
+
+    emuInstance = ((MainWindow*)parent)->getEmuInstance();
 
     ui->lstTitleList->setIconSize(QSize(32, 32));
 
@@ -113,19 +113,20 @@ void TitleManagerDialog::createTitleItem(u32 category, u32 titleid)
     nandmount.GetTitleInfo(category, titleid, version, &header, &banner);
 
     u32 icondata[32*32];
-    ROMManager::ROMIcon(banner.Icon, banner.Palette, icondata);
+    emuInstance->romIcon(banner.Icon, banner.Palette, icondata);
     QImage iconimg((const uchar*)icondata, 32, 32, QImage::Format_RGBA8888);
     QIcon icon(QPixmap::fromImage(iconimg.copy()));
 
     // TODO: make it possible to select other languages?
     QString title = QString::fromUtf16(banner.EnglishTitle, 128);
+    title = title.left(title.indexOf('\0'));
     title.replace("\n", " · ");
 
     char gamecode[5];
     *(u32*)&gamecode[0] = *(u32*)&header.GameCode[0];
     gamecode[4] = '\0';
     char extra[128];
-    sprintf(extra, "\n(title ID: %s · %08x/%08x · version %08x)", gamecode, category, titleid, version);
+    snprintf(extra, sizeof(extra), "\n(title ID: %s · %08x/%08x · version %08x)", gamecode, category, titleid, version);
 
     QListWidgetItem* item = new QListWidgetItem(title + QString(extra));
     item->setIcon(icon);
@@ -140,7 +141,9 @@ bool TitleManagerDialog::openNAND()
 {
     nand = nullptr;
 
-    FileHandle* bios7i = Platform::OpenLocalFile(Config::DSiBIOS7Path, FileMode::Read);
+    Config::Table cfg = Config::GetGlobalTable();
+
+    FileHandle* bios7i = Platform::OpenLocalFile(cfg.GetString("DSi.BIOS7Path"), FileMode::Read);
     if (!bios7i)
         return false;
 
@@ -149,7 +152,7 @@ bool TitleManagerDialog::openNAND()
     FileRead(es_keyY, 16, 1, bios7i);
     CloseFile(bios7i);
 
-    FileHandle* nandfile = Platform::OpenLocalFile(Config::DSiNANDPath, FileMode::ReadWriteExisting);
+    FileHandle* nandfile = Platform::OpenLocalFile(cfg.GetString("DSi.NANDPath"), FileMode::ReadWriteExisting);
     if (!nandfile)
         return false;
 
@@ -296,12 +299,12 @@ void TitleManagerDialog::onImportTitleData()
 
     QString file = QFileDialog::getOpenFileName(this,
                                                 "Select file to import...",
-                                                QString::fromStdString(EmuDirectory),
+                                                emuDirectory,
                                                 "Title data files (" + extensions + ");;Any file (*.*)");
 
     if (file.isEmpty()) return;
 
-    FILE* f = fopen(file.toStdString().c_str(), "rb");
+    Platform::FileHandle* f = Platform::OpenFile(file.toStdString(), Platform::Read);
     if (!f)
     {
         QMessageBox::critical(this,
@@ -310,9 +313,8 @@ void TitleManagerDialog::onImportTitleData()
         return;
     }
 
-    fseek(f, 0, SEEK_END);
-    u64 len = ftell(f);
-    fclose(f);
+    u64 len = Platform::FileLength(f);
+    Platform::CloseFile(f);
 
     if (len != wantedsize)
     {
@@ -370,7 +372,7 @@ void TitleManagerDialog::onExportTitleData()
 
     QString file = QFileDialog::getSaveFileName(this,
                                                 "Select path to export to...",
-                                                QString::fromStdString(EmuDirectory) + exportname,
+                                                emuDirectory + exportname,
                                                 "Title data files (" + extensions + ");;Any file (*.*)");
 
     if (file.isEmpty()) return;
@@ -395,7 +397,11 @@ TitleImportDialog::TitleImportDialog(QWidget* parent, QString& apppath, const DS
     grpTmdSource = new QButtonGroup(this);
     grpTmdSource->addButton(ui->rbTmdFromFile, 0);
     grpTmdSource->addButton(ui->rbTmdFromNUS, 1);
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
     connect(grpTmdSource, SIGNAL(buttonClicked(int)), this, SLOT(onChangeTmdSource(int)));
+#else
+    connect(grpTmdSource, SIGNAL(idClicked(int)), this, SLOT(onChangeTmdSource(int)));
+#endif
     grpTmdSource->button(0)->setChecked(true);
 }
 
@@ -476,7 +482,7 @@ void TitleImportDialog::accept()
         network = new QNetworkAccessManager(this);
 
         char url[256];
-        sprintf(url, "http://nus.cdn.t.shop.nintendowifi.net/ccs/download/%08x%08x/tmd", titleid[1], titleid[0]);
+        snprintf(url, sizeof(url), "http://nus.cdn.t.shop.nintendowifi.net/ccs/download/%08x%08x/tmd", titleid[1], titleid[0]);
 
         QNetworkRequest req;
         req.setUrl(QUrl(url));
@@ -543,7 +549,7 @@ void TitleImportDialog::on_btnAppBrowse_clicked()
 {
     QString file = QFileDialog::getOpenFileName(this,
                                                 "Select title executable...",
-                                                QString::fromStdString(EmuDirectory),
+                                                emuDirectory,
                                                 "DSiWare executables (*.app *.nds *.dsi *.srl);;Any file (*.*)");
 
     if (file.isEmpty()) return;
@@ -555,7 +561,7 @@ void TitleImportDialog::on_btnTmdBrowse_clicked()
 {
     QString file = QFileDialog::getOpenFileName(this,
                                                 "Select title metadata...",
-                                                QString::fromStdString(EmuDirectory),
+                                                emuDirectory,
                                                 "DSiWare metadata (*.tmd);;Any file (*.*)");
 
     if (file.isEmpty()) return;

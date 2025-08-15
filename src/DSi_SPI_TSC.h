@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -41,7 +41,6 @@ public:
 
     void SetTouchCoords(u16 x, u16 y) override;
     void MoveTouchCoords(u16 x, u16 y) override;
-    void MicInputFrame(const s16* data, int samples) override;
 
     void Write(u8 val) override;
     void Release() override;

@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -122,7 +122,6 @@ public:
 
     virtual void SetTouchCoords(u16 x, u16 y);
     virtual void MoveTouchCoords(u16 x, u16 y);
-    virtual void MicInputFrame(const s16* data, int samples);
 
     virtual void Write(u8 val) override;
 
@@ -133,9 +132,6 @@ protected:
 
     u16 TouchX, TouchY;
     s16 DeltaX, DeltaY;
-
-    s16 MicBuffer[1024];
-    int MicBufferLen;
 
     s16 CreateTouchOffset(s16 delta) const;
 };

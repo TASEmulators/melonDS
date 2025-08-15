@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -87,7 +87,7 @@ public:
     void DoSavestate(Savestate* file) override;
 
     u8 GetBootFlag() const;
-    void SetBootFlag(bool warm);
+    void SetBootFlag(u8 boot) noexcept { Registers[0x70] = boot; }
 
     bool GetBatteryCharging() const;
     void SetBatteryCharging(bool charging);

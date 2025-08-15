@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -85,18 +85,6 @@ struct GDBArgs
 /// New fields here should have default values if possible.
 struct NDSArgs
 {
-    /// NDS ROM to install.
-    /// Defaults to nullptr, which means no cart.
-    /// Should be populated with the desired save data beforehand,
-    /// including an SD card if applicable.
-    std::unique_ptr<NDSCart::CartCommon> NDSROM = nullptr;
-
-    /// GBA ROM to install.
-    /// Defaults to nullptr, which means no cart.
-    /// Should be populated with the desired save data beforehand.
-    /// Ignored in DSi mode.
-    std::unique_ptr<GBACart::CartCommon> GBAROM = nullptr;
-
     /// NDS ARM9 BIOS to install.
     /// Defaults to FreeBIOS, which is not compatible with DSi mode.
     std::unique_ptr<ARM9BIOSImage> ARM9BIOS = std::make_unique<ARM9BIOSImage>(bios_arm9_bin);
@@ -147,6 +135,7 @@ struct DSiArgs final : public NDSArgs
     std::optional<FATStorage> DSiSDCard;
 
     bool FullBIOSBoot = false;
+    bool DSPHLE = false;
 };
 }
 #endif //MELONDS_ARGS_H

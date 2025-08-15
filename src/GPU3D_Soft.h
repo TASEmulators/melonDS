@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -99,18 +99,9 @@ private:
             {
                 // along Y
 
-                if ((w0 & 0x1) && !(w1 & 0x1))
-                {
-                    this->w0n = w0 - 1;
-                    this->w0d = w0 + 1;
-                    this->w1d = w1;
-                }
-                else
-                {
-                    this->w0n = w0 & 0xFFFE;
-                    this->w0d = w0 & 0xFFFE;
-                    this->w1d = w1 & 0xFFFE;
-                }
+                this->w0n = w0 >> 1;
+                this->w0d = (w0 + ((w0 & ~w1) & 1)) >> 1;
+                this->w1d = w1 >> 1;
 
                 this->shift = 9;
             }
@@ -132,13 +123,13 @@ private:
             this->x = x;
             if (xdiff != 0 && !linear)
             {
-                s64 num = ((s64)x * w0n) << shift;
-                s32 den = (x * w0d) + ((xdiff-x) * w1d);
+                u32 num = (x * w0n) << shift;
+                u32 den = (x * w0d) + ((xdiff-x) * w1d);
 
                 // this seems to be a proper division on hardware :/
                 // I haven't been able to find cases that produce imperfect output
                 if (den == 0) yfactor = 0;
-                else          yfactor = (s32)(num / den);
+                else          yfactor = num / den;
             }
         }
 
@@ -430,16 +421,6 @@ private:
         s32 ycoverage, ycov_incr;
     };
 
-    template <typename T>
-    inline T ReadVRAM_Texture(u32 addr, const GPU& gpu) const
-    {
-        return *(T*)&gpu.VRAMFlat_Texture[addr & 0x7FFFF];
-    }
-    template <typename T>
-    inline T ReadVRAM_TexPal(u32 addr, const GPU& gpu) const
-    {
-        return *(T*)&gpu.VRAMFlat_TexPal[addr & 0x1FFFF];
-    }
     u32 AlphaBlend(const GPU3D& gpu3d, u32 srccolor, u32 dstcolor, u32 alpha) const noexcept;
 
     struct RendererPolygon

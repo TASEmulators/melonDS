@@ -1,5 +1,5 @@
 /*
-    Copyright 2016-2023 melonDS team
+    Copyright 2016-2025 melonDS team
 
     This file is part of melonDS.
 
@@ -123,10 +123,6 @@ inline bool DSi_BPTWL::GetIRQMode() const
 }
 
 u8 DSi_BPTWL::GetBootFlag() const { return Registers[0x70]; }
-void DSi_BPTWL::SetBootFlag(bool warm)
-{
-    Registers[0x70] = warm ? 1 : 0;
-}
 
 bool DSi_BPTWL::GetBatteryCharging() const { return Registers[0x20] >> 7; }
 void DSi_BPTWL::SetBatteryCharging(bool charging)
