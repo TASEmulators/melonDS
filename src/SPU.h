@@ -257,6 +257,15 @@ public:
 private:
     melonDS::NDS& NDS;
 
+    // sample pos/inc are 4-bit fractional
+    // 32KHz sample rate is 11/16 of 47KHz
+    // so they don't need to be very precise
+    u8 OutputSamplePos;
+    u8 OutputSampleInc;
+    s16 OutputLastSamples[2];
+
+    u32 MixInterval;
+
     blip_t* BlipL;
     blip_t* BlipR;
     u32 BlipAccumulate = 0;
