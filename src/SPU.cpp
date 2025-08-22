@@ -995,14 +995,14 @@ void SPU::Mix(u32 spucycles)
 
     if (LeftLatch != output[0])
     {
-        s32 diff = LeftLatch - output[0];
+        s32 diff = output[0] - LeftLatch;
         LeftLatch = output[0];
         blip_add_delta(BlipL, BlipAccumulate, diff);
     }
 
     if (RightLatch != output[1])
     {
-        s32 diff = RightLatch - output[1];
+        s32 diff = output[1] - RightLatch;
         RightLatch = output[1];
         blip_add_delta(BlipR, BlipAccumulate, diff);
     }
