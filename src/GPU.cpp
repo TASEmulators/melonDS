@@ -311,10 +311,10 @@ void GPU::InitFramebuffers() noexcept
     else
         fbsize = 256 * 192;
 
-    Framebuffer[0][0] = {alloc_invisible<u32>(fbsize), [](u32[]) {}};
-    Framebuffer[1][0] = {alloc_invisible<u32>(fbsize), [](u32[]) {}};
-    Framebuffer[0][1] = {alloc_invisible<u32>(fbsize), [](u32[]) {}};
-    Framebuffer[1][1] = {alloc_invisible<u32>(fbsize), [](u32[]) {}};
+    Framebuffer[0][0] = std::make_unique<u32[]>(fbsize);
+    Framebuffer[1][0] = std::make_unique<u32[]>(fbsize);
+    Framebuffer[0][1] = std::make_unique<u32[]>(fbsize);
+    Framebuffer[1][1] = std::make_unique<u32[]>(fbsize);
 
     memset(Framebuffer[0][0].get(), 0, fbsize*4);
     memset(Framebuffer[1][0].get(), 0, fbsize*4);
