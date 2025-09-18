@@ -123,13 +123,13 @@ private:
             this->x = x;
             if (xdiff != 0 && !linear)
             {
-                u32 num = (x * w0n) << shift;
-                u32 den = (x * w0d) + ((xdiff-x) * w1d);
+                s64 num = ((s64)x * w0n) << shift;
+                s32 den = (x * w0d) + ((xdiff-x) * w1d);
 
                 // this seems to be a proper division on hardware :/
                 // I haven't been able to find cases that produce imperfect output
                 if (den == 0) yfactor = 0;
-                else          yfactor = num / den;
+                else          yfactor = (s32)(num / den);
             }
         }
 
