@@ -701,8 +701,11 @@ void DSi::SoftReset()
 
     // also, BPTWL[0x70] could be abused to quickly boot specific titles
 
-    JIT.Reset();
-    JIT.CheckAndInvalidateITCM();
+    if (EnableJIT)
+    {
+        JIT.Reset();
+        JIT.CheckAndInvalidateITCM();
+    }
 
     ARM9.Reset();
     ARM7.Reset();

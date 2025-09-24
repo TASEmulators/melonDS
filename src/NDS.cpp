@@ -440,7 +440,10 @@ void NDS::Reset()
 
     // BIOS files are now loaded by the frontend
 
-    JIT.Reset();
+    if (EnableJIT)
+    {
+        JIT.Reset();
+    }
 
     if (ConsoleType == 1)
     {
