@@ -1,4 +1,4 @@
-/* blip_buf 1.1.0. http://www.slack.net/~ant/ */
+/* blip_buf $vers. http://www.slack.net/~ant/ */
 
 #include "blip_buf.h"
 

@@ -20,7 +20,6 @@
 #define GPU_H
 
 #include <memory>
-#include <functional>
 
 #include "GPU2D.h"
 #include "GPU3D.h"
