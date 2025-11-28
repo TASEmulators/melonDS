@@ -26,6 +26,10 @@
 #include "DSi_I2S.h"
 #include "SPU.h"
 
+#include "blip-buf/blip_buf.h"
+
+#define INTERNAL_SAMPLE_RATE 16756991.f
+
 namespace melonDS
 {
 using Platform::Log;
@@ -177,7 +181,7 @@ const std::array<s16, 0x200> InterpSNESGauss = {
     0x513, 0x514, 0x514, 0x515, 0x516, 0x516, 0x517, 0x517, 0x517, 0x518, 0x518, 0x518, 0x518, 0x518, 0x519, 0x519
 };
 
-SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation) :
+SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, double outputSampleRate) :
     NDS(nds),
     Channels {
         SPUChannel(0, nds, interpolation),
@@ -201,34 +205,38 @@ SPU::SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpola
         SPUCaptureUnit(0, nds),
         SPUCaptureUnit(1, nds),
     },
-    Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto))
+    AudioLock(Platform::Mutex_Create()),
+    Degrade10Bit(bitdepth == AudioBitDepth::_10Bit || (nds.ConsoleType == 1 && bitdepth == AudioBitDepth::Auto)),
+    OutputSampleRate(outputSampleRate),
+    OutputBuffer(nullptr)
 {
-    BlipL = blip_new(4096);
-    BlipR = blip_new(4096);
-    blip_set_rates(BlipL, 16756991, 44100);
-    blip_set_rates(BlipR, 16756991, 44100);
-
     NDS.RegisterEventFuncs(Event_SPU, this, {MakeEventThunk(SPU, Mix)});
 
     ApplyBias = true;
+    Degrade10Bit = false;
+
+    BlipLeft = blip_new(8192);
+    BlipRight = blip_new(8192);
+
+    OutputBufferReadPos = 0;
+    OutputBufferWritePos = 0;
 
     SetSampleRate(AudioSampleRate::_32KHz);
 }
 
 SPU::~SPU()
 {
-    blip_delete(BlipL);
-    blip_delete(BlipR);
+    Platform::Mutex_Free(AudioLock);
+    AudioLock = nullptr;
+    blip_delete(BlipLeft);
+    blip_delete(BlipRight);
+
     NDS.UnregisterEventFuncs(Event_SPU);
 }
 
 void SPU::Reset()
 {
-    blip_clear(BlipL);
-    blip_clear(BlipR);
-    BlipAccumulate = 0;
-    LeftLatch = 0;
-    RightLatch = 0;
+    InitOutput();
 
     Cnt = 0;
     MasterVolume = 0;
@@ -246,8 +254,16 @@ void SPU::Reset()
 
 void SPU::Stop()
 {
-    blip_clear(BlipL);
-    blip_clear(BlipR);
+    Platform::Mutex_Lock(AudioLock);
+    memset(OutputBuffer, 0, 2*OutputBufferSize*2);
+
+    blip_clear(BlipLeft);
+    blip_clear(BlipRight);
+    BlipTimer = 0;
+
+    OutputBufferReadPos = 0;
+    OutputBufferWritePos = 0;
+    Platform::Mutex_Unlock(AudioLock);
 }
 
 void SPU::DoSavestate(Savestate* file)
@@ -258,8 +274,6 @@ void SPU::DoSavestate(Savestate* file)
     file->Var8(&MasterVolume);
     file->Var16(&Bias);
 
-    file->Var8(&OutputSamplePos);
-    file->Var8(&OutputSampleInc);
     file->VarArray(OutputLastSamples, sizeof(OutputLastSamples));
 
     file->Var32(&MixInterval);
@@ -285,15 +299,12 @@ void SPU::SetSampleRate(AudioSampleRate rate)
     if (rate == AudioSampleRate::_47KHz)
     {
         MixInterval = 704;
-        OutputSampleInc = 16;
     }
     else
     {
         MixInterval = 1024;
-        OutputSampleInc = 11;
     }
 
-    OutputSamplePos = 0;
     memset(OutputLastSamples, 0, sizeof(OutputLastSamples));
 }
 
@@ -989,36 +1000,180 @@ void SPU::Mix(u32 spucycles)
         output[1] &= 0xFFC0;
     }
 
-    BlipAccumulate += spucycles;
-    // prevent blip from gaining too many samples
-    if (BlipAccumulate > 512 * 8192) BlipAccumulate = 512 * 8192;
+    BlipTimer += spucycles;
+    if (BlipTimer >= 8191 * 512)
+        BlipTimer = 8191 * 512;
 
-    if (LeftLatch != output[0])
-    {
-        s32 diff = output[0] - LeftLatch;
-        LeftLatch = output[0];
-        blip_add_delta(BlipL, BlipAccumulate, diff);
-    }
+    if (output[0] != OutputLastSamples[0])
+        blip_add_delta(BlipLeft, BlipTimer, (int) output[0] - OutputLastSamples[0]);
+    if (output[1] != OutputLastSamples[1])
+        blip_add_delta(BlipRight, BlipTimer, (int) output[1] - OutputLastSamples[1]);
 
-    if (RightLatch != output[1])
-    {
-        s32 diff = output[1] - RightLatch;
-        RightLatch = output[1];
-        blip_add_delta(BlipR, BlipAccumulate, diff);
-    }
+    OutputLastSamples[0] = output[0];
+    OutputLastSamples[1] = output[1];
 
     NDS.ScheduleEvent(Event_SPU, true, MixInterval, 0, MixInterval >> 1);
 }
 
-u32 SPU::ReadOutput(s16* data, u32 maxSamples)
+void SPU::EndFrame()
 {
-    blip_end_frame(BlipL, BlipAccumulate);
-    blip_end_frame(BlipR, BlipAccumulate);
-    BlipAccumulate = 0;
-    u32 samples = blip_samples_avail(BlipL);
-    blip_read_samples(BlipL, data + 0, maxSamples, true);
-    blip_read_samples(BlipR, data + 1, maxSamples, true);
-    return std::min(samples, maxSamples);
+    blip_end_frame(BlipLeft, BlipTimer);
+    blip_end_frame(BlipRight, BlipTimer);
+    BlipTimer = 0;
+
+    int avail = blip_samples_avail(BlipLeft);
+    s16 temp[avail * 2];
+    blip_read_samples(BlipLeft, temp, avail, true);
+    blip_read_samples(BlipRight, temp + 1, avail, true);
+
+    Platform::Mutex_Lock(AudioLock);
+    for (int i = 0; i < avail * 2; i += 2)
+    {
+        OutputBuffer[OutputBufferWritePos++] = temp[i];
+        OutputBuffer[OutputBufferWritePos++] = temp[i+1];
+
+        OutputBufferWritePos &= ((2*OutputBufferSize)-1);
+
+        if (OutputBufferWritePos == OutputBufferReadPos)
+        {
+            // advance the read position too, to avoid losing the entire FIFO
+            OutputBufferReadPos += 2;
+            OutputBufferReadPos &= ((2*OutputBufferSize)-1);
+        }
+    }
+    Platform::Mutex_Unlock(AudioLock);
+}
+
+void SPU::TrimOutput()
+{
+    Platform::Mutex_Lock(AudioLock);
+    const int halflimit = (OutputBufferSize / 2);
+
+    int readpos = OutputBufferWritePos - (halflimit*2);
+    if (readpos < 0) readpos += (OutputBufferSize*2);
+
+    OutputBufferReadPos = readpos;
+    Platform::Mutex_Unlock(AudioLock);
+}
+
+void SPU::DrainOutput()
+{
+    Platform::Mutex_Lock(AudioLock);
+    OutputBufferReadPos = 0;
+    OutputBufferWritePos = 0;
+    Platform::Mutex_Unlock(AudioLock);
+}
+
+void SPU::InitOutput()
+{
+    Platform::Mutex_Lock(AudioLock);
+
+    blip_set_rates(BlipLeft, INTERNAL_SAMPLE_RATE * OutputSkew, OutputSampleRate);
+    blip_set_rates(BlipRight, INTERNAL_SAMPLE_RATE * OutputSkew, OutputSampleRate);
+
+    u32 needSamples = (u32) ceil(INTERNAL_SAMPLE_RATE / 60 / INTERNAL_SAMPLE_RATE * OutputSampleRate);
+    u32 newBufferSize = 512;
+    while (newBufferSize < needSamples)
+        newBufferSize <<= 1;
+    newBufferSize <<= 1;
+
+    if (newBufferSize != OutputBufferSize)
+    {
+        if (OutputBuffer != nullptr)
+            free(OutputBuffer);
+        OutputBuffer = (s16*) malloc(2 * newBufferSize * 2);
+        OutputBufferSize = newBufferSize;
+    }
+
+    memset(OutputBuffer, 0, 2*OutputBufferSize*2);
+    OutputBufferReadPos = 0;
+    OutputBufferWritePos = 0;
+    Platform::Mutex_Unlock(AudioLock);
+}
+
+int SPU::GetOutputSize() const
+{
+    Platform::Mutex_Lock(AudioLock);
+
+    int ret;
+    if (OutputBufferWritePos >= OutputBufferReadPos)
+        ret = OutputBufferWritePos - OutputBufferReadPos;
+    else
+        ret = (OutputBufferSize*2) - OutputBufferReadPos + OutputBufferWritePos;
+
+    ret >>= 1;
+
+    Platform::Mutex_Unlock(AudioLock);
+    return ret;
+}
+
+void SPU::Sync(bool wait)
+{
+    // this function is currently not used anywhere
+    // depending on the usage context the thread safety measures could be made
+    // a lot faster
+
+    // sync to audio output in case the core is running too fast
+    // * wait=true: wait until enough audio data has been played
+    // * wait=false: merely skip some audio data to avoid a FIFO overflow
+
+    const int halflimit = (OutputBufferSize / 2);
+
+    if (wait)
+    {
+        // TODO: less CPU-intensive wait?
+        while (GetOutputSize() > halflimit);
+    }
+    else if (GetOutputSize() > halflimit)
+    {
+        Platform::Mutex_Lock(AudioLock);
+
+        int readpos = OutputBufferWritePos - (halflimit*2);
+        if (readpos < 0) readpos += (OutputBufferSize*2);
+
+        OutputBufferReadPos = readpos;
+
+        Platform::Mutex_Unlock(AudioLock);
+    }
+}
+
+int SPU::ReadOutput(s16* data, int samples)
+{
+    Platform::Mutex_Lock(AudioLock);
+    if (OutputBufferReadPos == OutputBufferWritePos)
+    {
+        Platform::Mutex_Unlock(AudioLock);
+        return 0;
+    }
+
+    for (int i = 0; i < samples; i++)
+    {
+        *data++ = OutputBuffer[OutputBufferReadPos++];
+        *data++ = OutputBuffer[OutputBufferReadPos++];
+        OutputBufferReadPos &= ((2*OutputBufferSize)-1);
+
+        if (OutputBufferWritePos == OutputBufferReadPos)
+        {
+            Platform::Mutex_Unlock(AudioLock);
+            return i+1;
+        }
+    }
+
+    Platform::Mutex_Unlock(AudioLock);
+    return samples;
+}
+
+void SPU::SetOutputSampleRate(double rate)
+{
+    OutputSampleRate = rate;
+    InitOutput();
+}
+
+void SPU::SetOutputSkew(double skew)
+{
+    blip_set_rates(BlipLeft, INTERNAL_SAMPLE_RATE * skew, OutputSampleRate);
+    blip_set_rates(BlipRight, INTERNAL_SAMPLE_RATE * skew, OutputSampleRate);
+    OutputSkew = skew;
 }
 
 

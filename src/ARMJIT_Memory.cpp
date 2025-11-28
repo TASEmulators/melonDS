@@ -83,6 +83,8 @@
         #define CONTEXT_PC uc_mcontext.mc_rip
     #elif defined(__NetBSD__)
         #define CONTEXT_PC uc_mcontext.__gregs[_REG_RIP]
+    #elif defined(__OpenBSD__)
+        #define CONTEXT_PC sc_rip
     #endif
 #elif defined(__aarch64__)
     #if defined(_WIN32)
@@ -95,6 +97,8 @@
         #define CONTEXT_PC uc_mcontext.mc_gpregs.gp_elr
     #elif defined(__NetBSD__)
         #define CONTEXT_PC uc_mcontext.__gregs[_REG_PC]
+    #elif defined(__OpenBSD__)
+        #define CONTEXT_PC sc_elr
     #endif
 #endif
 
@@ -746,7 +750,7 @@ bool ARMJIT_Memory::IsFastMemSupported()
 #ifdef WATERBOX
     return false;
 #endif
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__OpenBSD__)
     return false;
 #else
     static bool initialised = false;
@@ -837,7 +841,11 @@ bool ARMJIT_Memory::FaultHandler(FaultDescription& faultDesc, melonDS::NDS& nds)
             rewriteToSlowPath = !nds.JIT.Memory.MapAtAddress(faultDesc.EmulatedFaultAddr);
 
         if (rewriteToSlowPath)
+        {
+            nds.JIT.JitEnableWrite();
             faultDesc.FaultPC = nds.JIT.JITCompiler.RewriteMemAccess(faultDesc.FaultPC);
+            nds.JIT.JitEnableExecute();
+        }
 
         return true;
     }

@@ -22,10 +22,11 @@
 #include "Savestate.h"
 #include "Platform.h"
 
-#include "blip_buf/blip_buf.h"
+struct blip_t;
 
 namespace melonDS
 {
+
 class NDS;
 class SPU;
 
@@ -224,7 +225,7 @@ private:
 class SPU
 {
 public:
-    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation);
+    explicit SPU(melonDS::NDS& nds, AudioBitDepth bitdepth, AudioInterpolation interpolation, double outputSampleRate);
     ~SPU();
     void Reset();
     void DoSavestate(Savestate* file);
@@ -244,8 +245,16 @@ public:
     void SetApplyBias(bool enable);
 
     void Mix(u32 spucycles);
+    void EndFrame();
 
-    u32 ReadOutput(s16* data, u32 maxSamples);
+    void TrimOutput();
+    void DrainOutput();
+    void InitOutput();
+    int GetOutputSize() const;
+    void Sync(bool wait);
+    int ReadOutput(s16* data, int samples);
+    void SetOutputSampleRate(double rate);
+    void SetOutputSkew(double skew);
 
     u8 Read8(u32 addr);
     u16 Read16(u32 addr);
@@ -255,21 +264,23 @@ public:
     void Write32(u32 addr, u32 val);
 
 private:
+    u32 OutputBufferSize = 0;
+    double OutputSampleRate;
+    double OutputSkew = 1.0;
     melonDS::NDS& NDS;
 
-    // sample pos/inc are 4-bit fractional
-    // 32KHz sample rate is 11/16 of 47KHz
-    // so they don't need to be very precise
-    u8 OutputSamplePos;
-    u8 OutputSampleInc;
+    blip_t* BlipLeft;
+    blip_t* BlipRight;
+    int BlipTimer = 0;
+
+    s16* OutputBuffer;
+    u32 OutputBufferWritePos = 0;
+    u32 OutputBufferReadPos = 0;
     s16 OutputLastSamples[2];
 
     u32 MixInterval;
 
-    blip_t* BlipL;
-    blip_t* BlipR;
-    u32 BlipAccumulate = 0;
-    s32 LeftLatch = 0, RightLatch = 0;
+    Platform::Mutex* AudioLock;
 
     u16 Cnt = 0;
     u8 MasterVolume = 0;
