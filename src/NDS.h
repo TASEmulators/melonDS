@@ -48,9 +48,9 @@
 
 extern void (*InputCallback)();
 
-extern void (*ReadCallback)(melonDS::u32);
-extern void (*WriteCallback)(melonDS::u32);
-extern void (*ExecuteCallback)(melonDS::u32);
+extern void (*ReadCallback)(melonDS::u32 addr, melonDS::u32 val);
+extern void (*WriteCallback)(melonDS::u32 addr, melonDS::u32 val);
+extern void (*ExecuteCallback)(melonDS::u32 addr, melonDS::u32 val);
 
 enum TraceMask_t
 {

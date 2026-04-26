@@ -673,7 +673,7 @@ void ARMv5::Execute()
                 {
                     TraceTrampoline(TRACE_ARM9_THUMB, R, CurInstr, NDS.GetSysClockCycles(2));
                 }
-                MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
+                MAYBE_CALLBACK(ExecuteCallback, R[15] - 4, CurInstr);
 
                 // actually execute
                 u32 icode = (CurInstr >> 6) & 0x3FF;
@@ -694,7 +694,7 @@ void ARMv5::Execute()
                 {
                     TraceTrampoline(TRACE_ARM9_ARM, R, CurInstr, NDS.GetSysClockCycles(2));
                 }
-                MAYBE_CALLBACK(ExecuteCallback, R[15] - 8);
+                MAYBE_CALLBACK(ExecuteCallback, R[15] - 8, CurInstr);
 
                 // actually execute
                 if (CheckCondition(CurInstr >> 28))
@@ -823,7 +823,7 @@ void ARMv4::Execute()
                 {
                     TraceTrampoline(TRACE_ARM7_THUMB, R, CurInstr, NDS.GetSysClockCycles(2));
                 }
-                MAYBE_CALLBACK(ExecuteCallback, R[15] - 4);
+                MAYBE_CALLBACK(ExecuteCallback, R[15] - 4, CurInstr);
 
                 // actually execute
                 u32 icode = (CurInstr >> 6);
@@ -844,7 +844,7 @@ void ARMv4::Execute()
                 {
                     TraceTrampoline(TRACE_ARM7_ARM, R, CurInstr, NDS.GetSysClockCycles(2));
                 }
-                MAYBE_CALLBACK(ExecuteCallback, R[15] - 8);
+                MAYBE_CALLBACK(ExecuteCallback, R[15] - 8, CurInstr);
 
                 // actually execute
                 if (CheckCondition(CurInstr >> 28))
@@ -1145,7 +1145,7 @@ u32 ARMv5::ReadMem(u32 addr, int size)
 
 void ARMv4::DataRead8(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr);
+    MAYBE_CALLBACK(ReadCallback, addr, 0);
 
     *val = BusRead8(addr);
     DataRegion = addr;
@@ -1154,7 +1154,7 @@ void ARMv4::DataRead8(u32 addr, u32* val)
 
 void ARMv4::DataRead16(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~1);
+    MAYBE_CALLBACK(ReadCallback, addr & ~1, 0);
 
     addr &= ~1;
 
@@ -1165,7 +1165,7 @@ void ARMv4::DataRead16(u32 addr, u32* val)
 
 void ARMv4::DataRead32(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~3);
+    MAYBE_CALLBACK(ReadCallback, addr & ~3, 0);
 
     addr &= ~3;
 
@@ -1176,7 +1176,7 @@ void ARMv4::DataRead32(u32 addr, u32* val)
 
 void ARMv4::DataRead32S(u32 addr, u32* val)
 {
-    MAYBE_CALLBACK(ReadCallback, addr & ~3);
+    MAYBE_CALLBACK(ReadCallback, addr & ~3, 0);
 
     addr &= ~3;
 
@@ -1186,7 +1186,7 @@ void ARMv4::DataRead32S(u32 addr, u32* val)
 
 void ARMv4::DataWrite8(u32 addr, u8 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr);
+    MAYBE_CALLBACK(WriteCallback, addr, val);
 
     BusWrite8(addr, val);
     DataRegion = addr;
@@ -1195,7 +1195,7 @@ void ARMv4::DataWrite8(u32 addr, u8 val)
 
 void ARMv4::DataWrite16(u32 addr, u16 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~1);
+    MAYBE_CALLBACK(WriteCallback, addr & ~1, val);
 
     addr &= ~1;
 
@@ -1206,7 +1206,7 @@ void ARMv4::DataWrite16(u32 addr, u16 val)
 
 void ARMv4::DataWrite32(u32 addr, u32 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~3);
+    MAYBE_CALLBACK(WriteCallback, addr & ~3, val);
 
     addr &= ~3;
 
@@ -1217,7 +1217,7 @@ void ARMv4::DataWrite32(u32 addr, u32 val)
 
 void ARMv4::DataWrite32S(u32 addr, u32 val)
 {
-    MAYBE_CALLBACK(WriteCallback, addr & ~3);
+    MAYBE_CALLBACK(WriteCallback, addr & ~3, val);
 
     addr &= ~3;
 
@@ -1348,4 +1348,3 @@ void ARMv4::BusWrite32(u32 addr, u32 val)
     NDS.ARM7Write32(addr, val);
 }
 }
-
